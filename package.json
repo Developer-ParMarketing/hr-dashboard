@@ -1,0 +1,21 @@
+{
+  "name": "hr-automation",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -k -n api,web -c cyan,magenta \"npm run api\" \"npm run dev:wait\"",
+    "dev:wait": "node backend/scripts/wait-for-api.mjs && npm run dev",
+    "dev": "npm --prefix frontend run dev -- --open",
+    "api": "npm --prefix backend run start",
+    "check:python": "npm --prefix backend run check:python",
+    "check:db": "npm --prefix backend run check:db",
+    "build": "npm --prefix frontend run build",
+    "build:api": "npm --prefix backend run build",
+    "build:all": "npm run build:api && npm run build",
+    "preview": "npm --prefix frontend run preview",
+    "setup:python": "npm --prefix backend run setup:python",
+    "setup": "npm install && npm install --prefix backend && npm install --prefix frontend && npm run setup:python"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,13 @@
+# Python dependencies for attendance PDF/Excel parsing (system pip3 only - no virtualenv).
+
+# Used by backend/scripts/pdf_to_json.py, merge_cross_reports.py, python_tools/attendance_tool.py
+
+# Install: npm run setup:python  (from repo root)
+# Linux server: pip3 install -r backend/requirements.txt
+# Mac Homebrew (PEP 668): pip3 install --break-system-packages -r backend/requirements.txt
+
+pandas==3.0.5
+pdfplumber==0.11.10
+openpyxl==3.1.5
+xlrd==2.0.2
+odfpy==1.4.1
