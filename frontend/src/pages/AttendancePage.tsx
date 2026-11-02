@@ -25,6 +25,7 @@ import {
 import { formatDisplayDate, isoFromYmd } from '../utils/displayDate'
 import { downloadAbsenceReportAsXlsx, downloadDailyViewAsXlsx, downloadTeamPresenceSummaryAsXlsx } from '../utils/exportDailyXlsx'
 import { UploadComponent } from '../components/UploadComponent'
+import { EsslSyncPanel } from '../components/EsslSyncPanel'
 import { AttendancePeriodPicker } from '../components/AttendancePeriodPicker'
 import { AttendanceOnboardingStrip } from '../components/AttendanceOnboardingStrip'
 import { AccountLinkBanner } from '../components/AccountLinkBanner'
@@ -226,9 +227,9 @@ export function AttendancePage({
   })
   const [reportView, setReportView] = useState<ReportView>(() =>
     intentReviewTab ??
-      (initialTabFromUrl && initialTabFromUrl !== 'upload'
-        ? initialTabFromUrl
-        : reviewTabForRole(viewMode)),
+    (initialTabFromUrl && initialTabFromUrl !== 'upload'
+      ? initialTabFromUrl
+      : reviewTabForRole(viewMode)),
   )
   const [activeReportScope, setActiveReportScope] = useState<ActiveReportScope>(() =>
     intentReviewTab ?? 'all',
@@ -237,9 +238,9 @@ export function AttendancePage({
   const handledOpenIntentRef = useRef<string | null>(null)
   const lastReviewTabRef = useRef<ReportView>(
     intentReviewTab ??
-      (initialTabFromUrl && initialTabFromUrl !== 'upload'
-        ? initialTabFromUrl
-        : reviewTabForRole(viewMode)),
+    (initialTabFromUrl && initialTabFromUrl !== 'upload'
+      ? initialTabFromUrl
+      : reviewTabForRole(viewMode)),
   )
 
   const attendanceTitle =
@@ -393,11 +394,11 @@ export function AttendancePage({
       typeof rd === 'number' && rd >= 1 && rd <= 31
         ? rd
         : calendarDayForReportMonth(
-            reportYear,
-            reportMonth,
-            new Date(),
-            employees,
-          )
+          reportYear,
+          reportMonth,
+          new Date(),
+          employees,
+        )
     return resolveDailyColumnDay(employees, preferred)
   }, [lastRaw, reportYear, reportMonth, employees, openedRegister])
 
@@ -700,20 +701,20 @@ export function AttendancePage({
         const openedFromIntent =
           pr != null
             ? openedRegisterFromParts(
-                {
-                  fileName: pr.fileName,
-                  reportType: pr.reportType,
-                  reportYear: year,
-                  reportMonth: month,
-                  company,
-                  reportDay: pr.reportDay ?? null,
-                  reportDateIso: pr.reportDateIso ?? null,
-                  weekStartIso: pr.weekStartIso ?? null,
-                  weekEndIso: pr.weekEndIso ?? null,
-                },
-                snap.daily ?? [],
-                snap.weekly ?? [],
-              )
+              {
+                fileName: pr.fileName,
+                reportType: pr.reportType,
+                reportYear: year,
+                reportMonth: month,
+                company,
+                reportDay: pr.reportDay ?? null,
+                reportDateIso: pr.reportDateIso ?? null,
+                weekStartIso: pr.weekStartIso ?? null,
+                weekEndIso: pr.weekEndIso ?? null,
+              },
+              snap.daily ?? [],
+              snap.weekly ?? [],
+            )
             : null
 
         const reviewTab = reviewTabForRole(
@@ -1131,8 +1132,8 @@ export function AttendancePage({
     hrUploadOnly
       ? null
       : !registerOnly && (allowEdit || hasData || viewMode !== 'full')
-      ? allowEdit && activeReportScope === 'all'
-        ? (
+        ? allowEdit && activeReportScope === 'all'
+          ? (
             <div className="seg shrink-0" role="tablist" aria-label="Attendance views">
               {uploadTabBtn()}
               {viewTabBtn('daily', reviewTabLabels.daily)}
@@ -1140,15 +1141,15 @@ export function AttendancePage({
               {viewTabBtn('monthly', reviewTabLabels.monthly)}
             </div>
           )
-        : allowedViews.length > 1
-          ? (
+          : allowedViews.length > 1
+            ? (
               <div className="seg shrink-0" role="tablist" aria-label="Register view">
                 {allowedViews.includes('daily') ? viewTabBtn('daily', reviewTabLabels.daily) : null}
                 {allowedViews.includes('weekly') ? viewTabBtn('weekly', reviewTabLabels.weekly) : null}
                 {allowedViews.includes('monthly') ? viewTabBtn('monthly', reviewTabLabels.monthly) : null}
               </div>
             )
-          : (
+            : (
               <span className="shrink-0 rounded-full bg-[var(--color-brand-muted)] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[var(--color-brand)]">
                 {activeReportScope === 'daily'
                   ? 'Daily register'
@@ -1157,95 +1158,95 @@ export function AttendancePage({
                     : 'Monthly register'}
               </span>
             )
-      : null
+        : null
 
   const showHistoryBack = Boolean(onBackToBrowse) && (hasData || loading)
 
   const registerBody = (
     <>
-          {!usesRegisterBrowse && !allowEdit ? (
-            <div className="reports-toolbar card border max-w-md">
-              <div className="reports-period">
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  aria-label="Previous month"
-                  disabled={loading}
-                  onClick={() => {
-                    const next = shiftMonth(reportYear, reportMonth, -1)
-                    void loadSavedPeriod(next.year, next.month, companyCode)
-                  }}
-                >
-                  ←
-                </button>
-                <span className="reports-period-label">
-                  {MONTHS[reportMonth - 1] ?? 'Month'} {reportYear}
-                </span>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  aria-label="Next month"
-                  disabled={loading}
-                  onClick={() => {
-                    const next = shiftMonth(reportYear, reportMonth, 1)
-                    void loadSavedPeriod(next.year, next.month, companyCode)
-                  }}
-                >
-                  →
-                </button>
-              </div>
-            </div>
-          ) : !usesRegisterBrowse ? (
-            <div className="reports-toolbar card border max-w-xl">
-              <div className="reports-period flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  aria-label="Previous month"
-                  disabled={loading}
-                  onClick={() => {
-                    const next = shiftMonth(reportYear, reportMonth, -1)
-                    void loadSavedPeriod(next.year, next.month, companyCode)
-                  }}
-                >
-                  ←
-                </button>
-                <span className="reports-period-label">
-                  {MONTHS[reportMonth - 1] ?? 'Month'} {reportYear}
-                </span>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  aria-label="Next month"
-                  disabled={loading}
-                  onClick={() => {
-                    const next = shiftMonth(reportYear, reportMonth, 1)
-                    void loadSavedPeriod(next.year, next.month, companyCode)
-                  }}
-                >
-                  →
-                </button>
-                <label className="dashboard-company-select ml-1">
-                  <select
-                    className="field field-compact"
-                    value={companyCode}
-                    disabled={loading}
-                    aria-label="Company"
-                    onChange={(e) => {
-                      const next = e.target.value as UploadCompanyCode
-                      void loadSavedPeriod(reportYear, reportMonth, next)
-                    }}
-                  >
-                    {UPLOAD_COMPANY_CODES.map((code) => (
-                      <option key={code} value={code}>
-                        {code}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-          ) : null}
+      {!usesRegisterBrowse && !allowEdit ? (
+        <div className="reports-toolbar card border max-w-md">
+          <div className="reports-period">
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-label="Previous month"
+              disabled={loading}
+              onClick={() => {
+                const next = shiftMonth(reportYear, reportMonth, -1)
+                void loadSavedPeriod(next.year, next.month, companyCode)
+              }}
+            >
+              ←
+            </button>
+            <span className="reports-period-label">
+              {MONTHS[reportMonth - 1] ?? 'Month'} {reportYear}
+            </span>
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-label="Next month"
+              disabled={loading}
+              onClick={() => {
+                const next = shiftMonth(reportYear, reportMonth, 1)
+                void loadSavedPeriod(next.year, next.month, companyCode)
+              }}
+            >
+              →
+            </button>
+          </div>
+        </div>
+      ) : !usesRegisterBrowse ? (
+        <div className="reports-toolbar card border max-w-xl">
+          <div className="reports-period flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-label="Previous month"
+              disabled={loading}
+              onClick={() => {
+                const next = shiftMonth(reportYear, reportMonth, -1)
+                void loadSavedPeriod(next.year, next.month, companyCode)
+              }}
+            >
+              ←
+            </button>
+            <span className="reports-period-label">
+              {MONTHS[reportMonth - 1] ?? 'Month'} {reportYear}
+            </span>
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-label="Next month"
+              disabled={loading}
+              onClick={() => {
+                const next = shiftMonth(reportYear, reportMonth, 1)
+                void loadSavedPeriod(next.year, next.month, companyCode)
+              }}
+            >
+              →
+            </button>
+            <label className="dashboard-company-select ml-1">
+              <select
+                className="field field-compact"
+                value={companyCode}
+                disabled={loading}
+                aria-label="Company"
+                onChange={(e) => {
+                  const next = e.target.value as UploadCompanyCode
+                  void loadSavedPeriod(reportYear, reportMonth, next)
+                }}
+              >
+                {UPLOAD_COMPANY_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 
@@ -1330,304 +1331,309 @@ export function AttendancePage({
 
         <div className="page-body">
           <div className="min-w-0">
-          {viewMode === 'self' && !registerOnly && employeeProfileLinked === false ? (
-            <AccountLinkBanner
-              variant="employee"
-              loginEmail={user?.email}
-              className="mb-4 rounded-xl"
-            />
-          ) : null}
-          {!registerOnly ? null : registerBody}
-          {usesRegisterBrowse &&
-          !pickedBrowsePeriod &&
-          (tab === 'daily' || tab === 'weekly' || tab === 'monthly') ? (
-            <div className="mb-4">
-              <AttendancePeriodPicker
-                reportType={tab}
-                emptyHint={
-                  viewMode === 'self'
-                    ? 'No processed registers for this view yet. Ask HR to upload daily, weekly, or monthly files that include you.'
-                    : 'No processed registers for this view yet. They appear after HR uploads files that include your direct reports.'
-                }
-                onSelect={selectBrowsePeriod}
+            {viewMode === 'self' && !registerOnly && employeeProfileLinked === false ? (
+              <AccountLinkBanner
+                variant="employee"
+                loginEmail={user?.email}
+                className="mb-4 rounded-xl"
               />
-            </div>
-          ) : null}
-          {usesRegisterBrowse && pickedBrowsePeriod && hasData && tab !== 'upload' ? (
-            <div className="browse-context-bar card mb-4 border px-4 py-2.5">
-              <p className="text-sm text-[var(--color-ink)]">
-                <span className="text-[var(--color-warm-text)]">Showing </span>
-                {browsePeriodSummaryLabel(pickedBrowsePeriod)}
-              </p>
-              <button type="button" className="btn-ghost shrink-0 text-sm" onClick={clearBrowseSelection}>
-                Change period
-              </button>
-            </div>
-          ) : null}
-          {!hasData && error ? (
-            <div className="mb-4 space-y-2">
-              {error ? <p className="alert-error">{error}</p> : null}
-            </div>
-          ) : null}
-          {showRegisterSearchToolbar ? (
-            <div className="card mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
-              <input
-                type="search"
-                aria-label="Search by name or employee code"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') applySearch()
-                }}
-                placeholder="Name or code"
-                className="field min-h-[2.625rem] min-w-0 flex-1 sm:min-w-[12rem] sm:max-w-md"
-              />
-              <button type="button" onClick={applySearch} className="btn-primary shrink-0">
-                Find
-              </button>
-              <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--color-warm-text)]">
-                <span className="text-xs font-medium text-[color-mix(in_srgb,var(--color-ink)_50%,transparent)]">
-                  Filter
-                </span>
-                <select
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value as AttendanceFilter)}
-                  className="field min-h-[2.625rem] w-auto"
-                >
-                  <option value="all">All</option>
-                  <option value="present">Has present</option>
-                  <option value="absent">Has absent</option>
-                </select>
-              </label>
-              {(viewMode === 'full' || viewMode === 'team') && teams.length > 0 ? (
+            ) : null}
+            {!registerOnly ? null : registerBody}
+            {usesRegisterBrowse &&
+              !pickedBrowsePeriod &&
+              (tab === 'daily' || tab === 'weekly' || tab === 'monthly') ? (
+              <div className="mb-4">
+                <AttendancePeriodPicker
+                  reportType={tab}
+                  emptyHint={
+                    viewMode === 'self'
+                      ? 'No processed registers for this view yet. Ask HR to upload daily, weekly, or monthly files that include you.'
+                      : 'No processed registers for this view yet. They appear after HR uploads files that include your direct reports.'
+                  }
+                  onSelect={selectBrowsePeriod}
+                />
+              </div>
+            ) : null}
+            {usesRegisterBrowse && pickedBrowsePeriod && hasData && tab !== 'upload' ? (
+              <div className="browse-context-bar card mb-4 border px-4 py-2.5">
+                <p className="text-sm text-[var(--color-ink)]">
+                  <span className="text-[var(--color-warm-text)]">Showing </span>
+                  {browsePeriodSummaryLabel(pickedBrowsePeriod)}
+                </p>
+                <button type="button" className="btn-ghost shrink-0 text-sm" onClick={clearBrowseSelection}>
+                  Change period
+                </button>
+              </div>
+            ) : null}
+            {!hasData && error ? (
+              <div className="mb-4 space-y-2">
+                {error ? <p className="alert-error">{error}</p> : null}
+              </div>
+            ) : null}
+            {showRegisterSearchToolbar ? (
+              <div className="card mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
+                <input
+                  type="search"
+                  aria-label="Search by name or employee code"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') applySearch()
+                  }}
+                  placeholder="Name or code"
+                  className="field min-h-[2.625rem] min-w-0 flex-1 sm:min-w-[12rem] sm:max-w-md"
+                />
+                <button type="button" onClick={applySearch} className="btn-primary shrink-0">
+                  Find
+                </button>
                 <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--color-warm-text)]">
                   <span className="text-xs font-medium text-[color-mix(in_srgb,var(--color-ink)_50%,transparent)]">
-                    Team
+                    Filter
                   </span>
                   <select
-                    value={teamFilter === 'all' ? 'all' : String(teamFilter)}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setTeamFilter(value === 'all' ? 'all' : Number.parseInt(value, 10))
-                    }}
-                    className="field min-h-[2.625rem] w-auto max-w-[14rem]"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value as AttendanceFilter)}
+                    className="field min-h-[2.625rem] w-auto"
                   >
-                    <option value="all">All teams</option>
-                    {teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
-                    ))}
+                    <option value="all">All</option>
+                    <option value="present">Has present</option>
+                    <option value="absent">Has absent</option>
                   </select>
                 </label>
-              ) : null}
-            </div>
-          ) : null}
-          {allowEdit && !registerOnly && tab !== 'upload' && !hasData && !loading && !usesRegisterBrowse ? (
-            <div className="card border mb-4 p-6 text-center sm:p-8">
-              <p className="text-sm font-medium text-[var(--color-ink)]">No register loaded for this period</p>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--color-warm-text)]">
-                Use the Upload tab to process a file, or change month above. Daily, weekly, and monthly tables
-                appear here once data is loaded.
-              </p>
-              <button type="button" className="btn-primary mt-5 inline-flex" onClick={goToUploadTab}>
-                Go to upload
-              </button>
-            </div>
-          ) : null}
-          {usesRegisterBrowse && loading && pickedBrowsePeriod ? (
-            <p className="mb-4 text-sm text-[var(--color-warm-text)]">Opening register…</p>
-          ) : null}
-          {hasData && tab !== 'upload' && error ? (
-            <div className="mb-4 space-y-2">
-              {error ? <p className="alert-error">{error}</p> : null}
-            </div>
-          ) : null}
-          {allowEdit && !registerOnly && tab === 'upload' && (
-            <div className="space-y-4">
-              <UploadComponent
-                reportView={reportView}
-                onReportViewChange={setReportView}
-                selectedFile={file}
-                onFileSelect={setFile}
-                leaveFile={leaveFile}
-                wfhFile={wfhFile}
-                onLeaveFileSelect={setLeaveFile}
-                onWfhFileSelect={setWfhFile}
-                onProcess={process}
-                loading={loading}
-                error={error}
-                canUpload={allowEdit}
-              />
-            </div>
-          )}
+                {(viewMode === 'full' || viewMode === 'team') && teams.length > 0 ? (
+                  <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--color-warm-text)]">
+                    <span className="text-xs font-medium text-[color-mix(in_srgb,var(--color-ink)_50%,transparent)]">
+                      Team
+                    </span>
+                    <select
+                      value={teamFilter === 'all' ? 'all' : String(teamFilter)}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setTeamFilter(value === 'all' ? 'all' : Number.parseInt(value, 10))
+                      }}
+                      className="field min-h-[2.625rem] w-auto max-w-[14rem]"
+                    >
+                      <option value="all">All teams</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+            {allowEdit && !registerOnly && tab !== 'upload' && !hasData && !loading && !usesRegisterBrowse ? (
+              <div className="card border mb-4 p-6 text-center sm:p-8">
+                <p className="text-sm font-medium text-[var(--color-ink)]">No register loaded for this period</p>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--color-warm-text)]">
+                  Use the Upload tab to process a file, or change month above. Daily, weekly, and monthly tables
+                  appear here once data is loaded.
+                </p>
+                <button type="button" className="btn-primary mt-5 inline-flex" onClick={goToUploadTab}>
+                  Go to upload
+                </button>
+              </div>
+            ) : null}
+            {usesRegisterBrowse && loading && pickedBrowsePeriod ? (
+              <p className="mb-4 text-sm text-[var(--color-warm-text)]">Opening register…</p>
+            ) : null}
+            {hasData && tab !== 'upload' && error ? (
+              <div className="mb-4 space-y-2">
+                {error ? <p className="alert-error">{error}</p> : null}
+              </div>
+            ) : null}
+            {allowEdit && !registerOnly && tab === 'upload' && (
+              <div className="space-y-4">
+                <EsslSyncPanel
+                  year={reportYear}
+                  month={reportMonth}
+                  onSynced={(y, m) => void loadSavedPeriod(y, m, companyCode, { preferredView: 'monthly' })}
+                />
+                <UploadComponent
+                  reportView={reportView}
+                  onReportViewChange={setReportView}
+                  selectedFile={file}
+                  onFileSelect={setFile}
+                  leaveFile={leaveFile}
+                  wfhFile={wfhFile}
+                  onLeaveFileSelect={setLeaveFile}
+                  onWfhFileSelect={setWfhFile}
+                  onProcess={process}
+                  loading={loading}
+                  error={error}
+                  canUpload={allowEdit}
+                />
+              </div>
+            )}
 
-          {tab === 'daily' &&
-            !hrUploadOnly &&
-            hasData &&
-            allowedViews.includes('daily') &&
-            (!usesRegisterBrowse || pickedBrowsePeriod) && (
-            <div
-              className={
-                usesRegisterBrowse && pickedBrowsePeriod
-                  ? 'browse-attendance-scroll space-y-3 pr-1'
-                  : 'space-y-3'
-              }
-            >
-              {viewMode === 'full' ? (
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={downloadTeamPresenceExcel}
-                    disabled={employees.length === 0}
-                    className="btn-secondary disabled:opacity-50"
-                  >
-                    Download team presence Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={downloadAbsenceReportExcel}
-                    disabled={employees.length === 0}
-                    className="btn-secondary disabled:opacity-50"
-                  >
-                    Download absence Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={downloadDailyExcelWithReasons}
-                    disabled={employees.length === 0}
-                    className="btn-primary disabled:opacity-50"
-                  >
-                    Download daily Excel
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={downloadDailyExcelWithReasons}
-                    disabled={employees.length === 0}
-                    className="btn-primary disabled:opacity-50"
-                  >
-                    Download Excel
-                  </button>
+            {tab === 'daily' &&
+              !hrUploadOnly &&
+              hasData &&
+              allowedViews.includes('daily') &&
+              (!usesRegisterBrowse || pickedBrowsePeriod) && (
+                <div
+                  className={
+                    usesRegisterBrowse && pickedBrowsePeriod
+                      ? 'browse-attendance-scroll space-y-3 pr-1'
+                      : 'space-y-3'
+                  }
+                >
+                  {viewMode === 'full' ? (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={downloadTeamPresenceExcel}
+                        disabled={employees.length === 0}
+                        className="btn-secondary disabled:opacity-50"
+                      >
+                        Download team presence Excel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={downloadAbsenceReportExcel}
+                        disabled={employees.length === 0}
+                        className="btn-secondary disabled:opacity-50"
+                      >
+                        Download absence Excel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={downloadDailyExcelWithReasons}
+                        disabled={employees.length === 0}
+                        className="btn-primary disabled:opacity-50"
+                      >
+                        Download daily Excel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={downloadDailyExcelWithReasons}
+                        disabled={employees.length === 0}
+                        className="btn-primary disabled:opacity-50"
+                      >
+                        Download Excel
+                      </button>
+                    </div>
+                  )}
+                  {showDailyTeamPresence ? (
+                    <DailyTeamPresenceSection
+                      employees={filteredEmployees}
+                      dailyRecords={dailyRecords}
+                      reportYear={reportYear}
+                      reportMonth={reportMonth}
+                      calendarDay={dailyViewCalendarDay}
+                      dateLabelOverride={dailyDateLabelOverride}
+                    />
+                  ) : null}
+                  <DailyTable
+                    employees={filteredEmployees}
+                    dailyRecords={dailyRecords}
+                    weeklyRecords={weeklyRecords}
+                    search={search}
+                    filter={filter}
+                    reportYear={reportYear}
+                    reportMonth={reportMonth}
+                    calendarDay={dailyViewCalendarDay}
+                    dateLabelOverride={dailyDateLabelOverride}
+                    dailyColumnHint={dailyColumnHint}
+                    notificationStatus={notificationStatus}
+                    onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
+                    allowEdit={allowEdit}
+                    onSaved={refreshAfterInlineEdit}
+                    onSaveError={setError}
+                    groupByTeam={showTeamBifurcation}
+                  />
                 </div>
               )}
-              {showDailyTeamPresence ? (
-                <DailyTeamPresenceSection
-                  employees={filteredEmployees}
-                  dailyRecords={dailyRecords}
-                  reportYear={reportYear}
-                  reportMonth={reportMonth}
-                  calendarDay={dailyViewCalendarDay}
-                  dateLabelOverride={dailyDateLabelOverride}
-                />
-              ) : null}
-              <DailyTable
-                employees={filteredEmployees}
-                dailyRecords={dailyRecords}
-                weeklyRecords={weeklyRecords}
-                search={search}
-                filter={filter}
-                reportYear={reportYear}
-                reportMonth={reportMonth}
-                calendarDay={dailyViewCalendarDay}
-                dateLabelOverride={dailyDateLabelOverride}
-                dailyColumnHint={dailyColumnHint}
-                notificationStatus={notificationStatus}
-                onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
-                allowEdit={allowEdit}
-                onSaved={refreshAfterInlineEdit}
-                onSaveError={setError}
-                groupByTeam={showTeamBifurcation}
-              />
-            </div>
-          )}
 
-          {tab === 'weekly' &&
-            !hrUploadOnly &&
-            hasData &&
-            allowedViews.includes('weekly') &&
-            (!usesRegisterBrowse || pickedBrowsePeriod) && (
-            <div
-              className={
-                usesRegisterBrowse && pickedBrowsePeriod
-                  ? 'browse-attendance-scroll space-y-4 pr-1'
-                  : 'space-y-6'
-              }
-            >
-              <WeeklyAttendanceTable
-                employees={filteredEmployees}
-                weeklyRecords={weeklyRecords}
-                search={search}
-                filter={filter}
-                reportYear={reportYear}
-                reportMonth={reportMonth}
-                policyCompany={policyCompany}
-                notificationStatus={notificationStatus}
-                onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
-                allowEdit={allowEdit}
-                showTeamSummary={false}
-                groupByTeam={showTeamBifurcation}
-                companyHolidays={companyHolidays}
-                pinnedWeekStart={browsePinnedWeekStart}
-                lockWeekPicker={Boolean(browsePinnedWeekStart)}
-              />
-              {!(usesRegisterBrowse && pickedBrowsePeriod) ? (
-              <WeeklyTable
-                employees={filteredEmployees}
-                search={search}
-                filter={filter}
-                reportYear={reportYear}
-                reportMonth={reportMonth}
-                hoursRollupPresent={hoursRollupPresent}
-                policyCompany={policyCompany}
-                weeklyRecords={weeklyRecords}
-                dailyRecords={dailyRecords}
-                onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
-                allowEdit={allowEdit}
-                onSaved={refreshAfterInlineEdit}
-                onSaveError={setError}
-                groupByTeam={showTeamBifurcation}
-                companyHolidays={companyHolidays}
-                pinnedWeekStart={browsePinnedWeekStart}
-                lockWeekPicker={Boolean(browsePinnedWeekStart)}
-                simpleExcelExport={simpleExcelExport}
-              />
-              ) : null}
-            </div>
-          )}
+            {tab === 'weekly' &&
+              !hrUploadOnly &&
+              hasData &&
+              allowedViews.includes('weekly') &&
+              (!usesRegisterBrowse || pickedBrowsePeriod) && (
+                <div
+                  className={
+                    usesRegisterBrowse && pickedBrowsePeriod
+                      ? 'browse-attendance-scroll space-y-4 pr-1'
+                      : 'space-y-6'
+                  }
+                >
+                  <WeeklyAttendanceTable
+                    employees={filteredEmployees}
+                    weeklyRecords={weeklyRecords}
+                    search={search}
+                    filter={filter}
+                    reportYear={reportYear}
+                    reportMonth={reportMonth}
+                    policyCompany={policyCompany}
+                    notificationStatus={notificationStatus}
+                    onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
+                    allowEdit={allowEdit}
+                    showTeamSummary={false}
+                    groupByTeam={showTeamBifurcation}
+                    companyHolidays={companyHolidays}
+                    pinnedWeekStart={browsePinnedWeekStart}
+                    lockWeekPicker={Boolean(browsePinnedWeekStart)}
+                  />
+                  {!(usesRegisterBrowse && pickedBrowsePeriod) ? (
+                    <WeeklyTable
+                      employees={filteredEmployees}
+                      search={search}
+                      filter={filter}
+                      reportYear={reportYear}
+                      reportMonth={reportMonth}
+                      hoursRollupPresent={hoursRollupPresent}
+                      policyCompany={policyCompany}
+                      weeklyRecords={weeklyRecords}
+                      dailyRecords={dailyRecords}
+                      onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
+                      allowEdit={allowEdit}
+                      onSaved={refreshAfterInlineEdit}
+                      onSaveError={setError}
+                      groupByTeam={showTeamBifurcation}
+                      companyHolidays={companyHolidays}
+                      pinnedWeekStart={browsePinnedWeekStart}
+                      lockWeekPicker={Boolean(browsePinnedWeekStart)}
+                      simpleExcelExport={simpleExcelExport}
+                    />
+                  ) : null}
+                </div>
+              )}
 
-          {tab === 'monthly' &&
-            !hrUploadOnly &&
-            hasData &&
-            allowedViews.includes('monthly') &&
-            (!usesRegisterBrowse || pickedBrowsePeriod) && (
-            <div
-              className={
-                usesRegisterBrowse && pickedBrowsePeriod ? 'browse-attendance-scroll pr-1' : undefined
-              }
-            >
-            <MonthlyTable
-              employees={filteredEmployees}
-              search={search}
-              filter={filter}
-              reportYear={reportYear}
-              reportMonth={reportMonth}
-              policyCompany={policyCompany}
-              dailyRecords={dailyRecords}
-              weeklyRecords={weeklyRecords}
-              onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
-              allowEdit={allowEdit}
-              onSaved={refreshAfterInlineEdit}
-              onSaveError={setError}
-              showTeamSummary={false}
-              groupByTeam={showTeamBifurcation}
-              companyHolidays={companyHolidays}
-              simpleExcelExport={simpleExcelExport}
-            />
-            </div>
-          )}
+            {tab === 'monthly' &&
+              !hrUploadOnly &&
+              hasData &&
+              allowedViews.includes('monthly') &&
+              (!usesRegisterBrowse || pickedBrowsePeriod) && (
+                <div
+                  className={
+                    usesRegisterBrowse && pickedBrowsePeriod ? 'browse-attendance-scroll pr-1' : undefined
+                  }
+                >
+                  <MonthlyTable
+                    employees={filteredEmployees}
+                    search={search}
+                    filter={filter}
+                    reportYear={reportYear}
+                    reportMonth={reportMonth}
+                    policyCompany={policyCompany}
+                    dailyRecords={dailyRecords}
+                    weeklyRecords={weeklyRecords}
+                    onBulkWeeklyAction={allowEdit ? onBulkWeeklyStatusChange : undefined}
+                    allowEdit={allowEdit}
+                    onSaved={refreshAfterInlineEdit}
+                    onSaveError={setError}
+                    showTeamSummary={false}
+                    groupByTeam={showTeamBifurcation}
+                    companyHolidays={companyHolidays}
+                    simpleExcelExport={simpleExcelExport}
+                  />
+                </div>
+              )}
 
           </div>
         </div>

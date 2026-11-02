@@ -38,6 +38,8 @@ import {
   runScheduledNotifications,
 } from "./notify/service.js";
 import { startNotificationScheduler, startOffboardingScheduler } from "./notify/schedule.js";
+import { startEsslSyncScheduler } from "./essl/schedule.js";
+import { handleEsslStatus, handleEsslSync } from "./essl/routes.js";
 import { authSecret, requireAuth, requireAdmin, requireEditor, type AuthedRequest } from "./auth/middleware.js";
 import { requireHolidayManager } from "./holidays/guard.js";
 import { resolveAttendanceScope } from "./auth/attendanceScope.js";
@@ -207,7 +209,7 @@ const downloads = new Map<string, string>();
 type MulterFiles = Record<string, Express.Multer.File[] | undefined>;
 
 function safeUnlink(p: string | undefined) {
-  if (p) fs.unlink(p, () => {});
+  if (p) fs.unlink(p, () => { });
 }
 
 function parseRouteId(raw: string | string[] | undefined): number | null {
@@ -416,6 +418,11 @@ app.post("/api/auth/change-password", (req, res) => {
 });
 
 // --- Attendance ingest, saved months, daily/weekly edits ---
+// Biometric machine (eSSL) sync → same tables as the PDF upload below.
+app.get("/api/attendance/essl/status", requireEditor, handleEsslStatus);
+app.post("/api/attendance/essl/sync", requireEditor, (req, res) => {
+  void handleEsslSync(req, res);
+});
 
 app.post(
   "/api/attendance/process",
@@ -496,9 +503,9 @@ app.post(
         typeof reportDateIso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(reportDateIso)
           ? reportDateIso
           : typeof (parseMeta as { reportDateIso?: unknown } | undefined)?.reportDateIso === "string" &&
-              /^\d{4}-\d{2}-\d{2}$/.test(
-                String((parseMeta as { reportDateIso?: unknown }).reportDateIso),
-              )
+            /^\d{4}-\d{2}-\d{2}$/.test(
+              String((parseMeta as { reportDateIso?: unknown }).reportDateIso),
+            )
             ? String((parseMeta as { reportDateIso?: unknown }).reportDateIso)
             : undefined;
       if (isoForMerge) {
@@ -533,12 +540,12 @@ app.post(
         crossCheck = merged.crossCheck;
         const cc = merged.crossCheck as
           | {
-              replacedAb?: number;
-              abCandidates?: number;
-              leaveKeys?: number;
-              wfhKeys?: number;
-              unmatchedSample?: unknown;
-            }
+            replacedAb?: number;
+            abCandidates?: number;
+            leaveKeys?: number;
+            wfhKeys?: number;
+            unmatchedSample?: unknown;
+          }
           | undefined;
         console.log(
           `[attendance/process] requestId=${requestId} replacedAb=${String(cc?.replacedAb ?? "na")} abCandidates=${String(cc?.abCandidates ?? "na")} leaveKeys=${String(cc?.leaveKeys ?? "na")} wfhKeys=${String(cc?.wfhKeys ?? "na")} unmatchedSample=${JSON.stringify(cc?.unmatchedSample ?? [])}`,
@@ -555,7 +562,7 @@ app.post(
         setTimeout(() => {
           const p = downloads.get(id);
           if (p) {
-            fs.unlink(p, () => {});
+            fs.unlink(p, () => { });
             downloads.delete(id);
           }
         }, 60 * 60 * 1000);
@@ -596,9 +603,9 @@ app.post(
         reportMonth: mergeMonth,
         reportDay:
           (reportType === "daily" || reportType === "weekly") &&
-          typeof reportDay === "number" &&
-          reportDay >= 1 &&
-          reportDay <= 31
+            typeof reportDay === "number" &&
+            reportDay >= 1 &&
+            reportDay <= 31
             ? reportDay
             : null,
         company: company.trim() || null,
@@ -1479,6 +1486,7 @@ initDb()
     await seedDefaultHolidaysIfEmpty();
     startNotificationScheduler();
     startOffboardingScheduler();
+    startEsslSyncScheduler();
     app.listen(PORT, HOST, () => {
       const hostLabel = HOST === "0.0.0.0" ? "localhost" : HOST;
       console.log(`Attendance API http://${hostLabel}:${PORT} (listen ${HOST}:${PORT}, NODE_ENV=${NODE_ENV})`);
