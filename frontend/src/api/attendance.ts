@@ -14,6 +14,49 @@ import { client } from './client'
 /** Monthly PDF parsing often exceeds 2 minutes; process uses its own limit. */
 const ATTENDANCE_PROCESS_TIMEOUT_MS = 900_000
 
+/** Biometric machine (eSSL) sync — punches are saved into the same register as a PDF upload. */
+export type EsslSyncResult = {
+  ok: boolean
+  trigger: 'manual' | 'schedule'
+  year: number
+  month: number
+  from: string
+  to: string
+  punches: number
+  matchedEmployees: number
+  unmatchedCodes: string[]
+  employeesUpdated: number
+  daysChanged: number
+  companies: { company: string; employees: number; error?: string }[]
+  startedAt: string
+  finishedAt: string
+  durationMs: number
+  error?: string
+}
+
+export type EsslStatus = {
+  configured: boolean
+  autoSync: boolean
+  intervalMinutes: number
+  devices: number
+  running: boolean
+  last: EsslSyncResult | null
+}
+
+export async function getEsslStatus(): Promise<EsslStatus> {
+  const { data } = await client.get<EsslStatus>('/api/attendance/essl/status')
+  return data
+}
+
+export async function syncEsslMonth(year: number, month: number): Promise<EsslSyncResult> {
+  const { data } = await client.post<EsslSyncResult>(
+    '/api/attendance/essl/sync',
+    { year, month },
+    { timeout: 300_000 },
+  )
+  return data
+}
+
 export type ProcessAttendanceOptions = {
   /** Optional fallback when the file has no parseable register date (API defaults to today). */
   reportYear?: number
