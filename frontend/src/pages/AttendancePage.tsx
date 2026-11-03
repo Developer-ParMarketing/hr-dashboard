@@ -1446,11 +1446,7 @@ export function AttendancePage({
             ) : null}
             {allowEdit && !registerOnly && tab === 'upload' && (
               <div className="space-y-4">
-                <EsslSyncPanel
-                  year={reportYear}
-                  month={reportMonth}
-                  onSynced={(y, m) => void loadSavedPeriod(y, m, companyCode, { preferredView: 'monthly' })}
-                />
+                <EsslSyncPanel year={reportYear} month={reportMonth} />
                 <UploadComponent
                   reportView={reportView}
                   onReportViewChange={setReportView}
