@@ -228,3 +228,37 @@ export async function saveWeeklyAttendanceEdit(
   const { data } = await client.patch<WeeklyAttendanceRecord>(`/api/attendance/weekly/${id}`, payload)
   return data
 }
+
+
+/** Apply a leave and/or WFH file to attendance already saved (e.g. from the machine sync). */
+export type ApplyLeaveWfhResult = {
+  ok: boolean
+  year: number
+  month: number
+  wfhDays: number
+  leaveDays: number
+  daysChanged: number
+  employeesUpdated: number
+  changes: { code: string; name: string; date: string; from: string; to: string }[]
+  skippedPresent: { code: string; name: string; date: string; from: string; to: string }[]
+  persisted: { company: string; error?: string }[]
+}
+
+export async function applyLeaveWfhFiles(opts: {
+  year: number
+  month: number
+  company?: string
+  wfhFile?: File | null
+  leaveFile?: File | null
+}): Promise<ApplyLeaveWfhResult> {
+  const form = new FormData()
+  form.append('year', String(opts.year))
+  form.append('month', String(opts.month))
+  form.append('company', opts.company || 'PM')
+  if (opts.wfhFile) form.append('wfhFile', opts.wfhFile)
+  if (opts.leaveFile) form.append('leaveFile', opts.leaveFile)
+  const { data } = await client.post<ApplyLeaveWfhResult>('/api/attendance/apply-leave-wfh', form, {
+    timeout: 300_000,
+  })
+  return data
+}

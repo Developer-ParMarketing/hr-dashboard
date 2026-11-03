@@ -26,6 +26,7 @@ import { formatDisplayDate, isoFromYmd } from '../utils/displayDate'
 import { downloadAbsenceReportAsXlsx, downloadDailyViewAsXlsx, downloadTeamPresenceSummaryAsXlsx } from '../utils/exportDailyXlsx'
 import { UploadComponent } from '../components/UploadComponent'
 import { EsslSyncPanel } from '../components/EsslSyncPanel'
+import { LeaveWfhApplyPanel } from '../components/LeaveWfhApplyPanel'
 import { AttendancePeriodPicker } from '../components/AttendancePeriodPicker'
 import { AttendanceOnboardingStrip } from '../components/AttendanceOnboardingStrip'
 import { AccountLinkBanner } from '../components/AccountLinkBanner'
@@ -1461,6 +1462,7 @@ export function AttendancePage({
             {allowEdit && !registerOnly && tab === 'upload' && (
               <div className="space-y-4">
                 <EsslSyncPanel year={reportYear} month={reportMonth} />
+                <LeaveWfhApplyPanel year={reportYear} month={reportMonth} />
                 <UploadComponent
                   reportView={reportView}
                   onReportViewChange={setReportView}

@@ -40,6 +40,7 @@ import {
 import { startNotificationScheduler, startOffboardingScheduler } from "./notify/schedule.js";
 import { startEsslSyncScheduler } from "./essl/schedule.js";
 import { handleEsslStatus, handleEsslSync } from "./essl/routes.js";
+import { buildSavedMonthGrid, persistLeaveWfhChanges } from "./persist/applyLeaveWfh.js";
 import { authSecret, requireAuth, requireAdmin, requireEditor, type AuthedRequest } from "./auth/middleware.js";
 import { requireHolidayManager } from "./holidays/guard.js";
 import { resolveAttendanceScope } from "./auth/attendanceScope.js";
@@ -419,6 +420,79 @@ app.post("/api/auth/change-password", (req, res) => {
 
 // --- Attendance ingest, saved months, daily/weekly edits ---
 // Biometric machine (eSSL) sync → same tables as the PDF upload below.
+// Apply a leave and/or WFH file to attendance already saved (machine sync) — no register upload.
+app.post(
+  "/api/attendance/apply-leave-wfh",
+  requireEditor,
+  upload.fields([
+    { name: "leaveFile", maxCount: 1 },
+    { name: "wfhFile", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const files = req.files as MulterFiles | undefined;
+    const leaveF = files?.leaveFile?.[0];
+    const wfhF = files?.wfhFile?.[0];
+    let empJsonPath: string | undefined;
+    try {
+      if (!leaveF?.path && !wfhF?.path) {
+        res.status(400).json({ error: "Choose a WFH file and/or a leave file." });
+        return;
+      }
+      const year = Number.parseInt(String(req.body?.year ?? ""), 10);
+      const month = Number.parseInt(String(req.body?.month ?? ""), 10);
+      if (!Number.isFinite(year) || year < 2000 || year > 2100 || !Number.isFinite(month) || month < 1 || month > 12) {
+        res.status(400).json({ error: "year and month are required" });
+        return;
+      }
+      const company = (typeof req.body?.company === "string" ? req.body.company : "").trim() || "PM";
+      const before = await buildSavedMonthGrid(year, month, company);
+      if (before.employees.length === 0 || before.lastDay === 0) {
+        res.status(400).json({ error: "No saved attendance for that month yet. Sync it from the machine first." });
+        return;
+      }
+      empJsonPath = path.join(os.tmpdir(), `attendance_emp_${randomUUID()}.json`);
+      fs.writeFileSync(empJsonPath, JSON.stringify({ employees: before.employees }), "utf8");
+      const merged = await runMerge(
+        empJsonPath,
+        year,
+        month,
+        leaveF?.path && fs.existsSync(leaveF.path) ? leaveF.path : null,
+        wfhF?.path && fs.existsSync(wfhF.path) ? wfhF.path : null,
+        "monthly",
+      );
+      const result = await persistLeaveWfhChanges({
+        year,
+        month,
+        before,
+        merged: merged.employees,
+        actor: actorFromRequest(req as AuthedRequest, req.body?.actor),
+        crossCheck: merged.crossCheck,
+      });
+      if (result.daysChanged > 0) {
+        await recordUploadHistory({
+          fileName: [wfhF?.originalname, leaveF?.originalname].filter(Boolean).join(" + ") || "Leave/WFH file",
+          reportType: "monthly",
+          reportYear: year,
+          reportMonth: month,
+          company,
+          actor: actorFromRequest(req as AuthedRequest, req.body?.actor),
+          employeeCount: result.employeesUpdated,
+          dailyUpserted: result.daysChanged,
+        });
+      }
+      console.log(
+        `[attendance/apply-leave-wfh] ${year}-${month} ${company}: wfh=${result.wfhDays} leave=${result.leaveDays} changed=${result.daysChanged}`,
+      );
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : "Could not apply the file" });
+    } finally {
+      safeUnlink(leaveF?.path);
+      safeUnlink(wfhF?.path);
+      safeUnlink(empJsonPath);
+    }
+  },
+);
 app.get("/api/attendance/essl/status", requireEditor, handleEsslStatus);
 app.post("/api/attendance/essl/sync", requireEditor, (req, res) => {
   void handleEsslSync(req, res);
