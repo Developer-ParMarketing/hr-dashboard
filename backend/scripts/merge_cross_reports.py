@@ -466,6 +466,9 @@ def _should_replace_cell(raw: str, tok: str) -> bool:
         return False
     if not ru or ru == "AB":
         return True
+    if ru in ("WFH", "WFH(HD)") and tu.startswith("WFH(") and tu != "WFH(HD)":
+        # Plain WFH saved without hours (older uploads): the sheet's IN/OUT gives real times + hours.
+        return True
     if ru == "P" or ru.startswith("P("):
         return tu.startswith("WFH") or tu in ("SL", "PL", "CL", "DA", "WO", "WFH(HD)")
     return False
