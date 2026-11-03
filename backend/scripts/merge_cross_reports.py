@@ -602,6 +602,7 @@ def load_wfh_computex_submit_format(
         return out
 
     slots: dict[tuple[str, str, int, int, int], dict[str, str | None]] = {}
+    all_ins: dict[tuple[str, str, int, int, int], list[str]] = {}
 
     for _, row in df.iterrows():
         name = norm_name(cell_str(row.get(c_name)))
@@ -627,6 +628,8 @@ def load_wfh_computex_submit_format(
         slot = slots.setdefault(key, {"IN": None, "OUT": None})
         if situation == "IN":
             slot["IN"] = time_val
+            ins = all_ins.setdefault(key, [])
+            ins.append(time_val)
         elif situation == "OUT":
             slot["OUT"] = time_val
 
@@ -635,6 +638,18 @@ def load_wfh_computex_submit_format(
         out_t = slot.get("OUT")
         if not in_t and not out_t:
             continue
+        if in_t and not out_t:
+            # Employee pressed IN twice instead of IN then OUT: earliest IN is the check-in,
+            # latest IN is the check-out (otherwise a full day shows as half day).
+            timed = [
+                (m, t)
+                for t in all_ins.get(key, [])
+                if (m := _parse_clock_to_minutes(t)) is not None
+            ]
+            if len(timed) >= 2:
+                timed.sort()
+                if timed[-1][0] > timed[0][0]:
+                    in_t, out_t = timed[0][1], timed[-1][1]
         if in_t and out_t:
             worked = _compute_worked_minutes(in_t, out_t)
             token = _wfh_token_from_worked_minutes(worked)
