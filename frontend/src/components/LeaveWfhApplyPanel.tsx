@@ -158,6 +158,14 @@ export function LeaveWfhApplyPanel({ year, month, company = 'PM' }: Props) {
 
             {error ? <p className="alert-error mt-4 whitespace-pre-line">{error}</p> : null}
 
+            {result?.crossCheck?.leaveFileIsInOut ? (
+                <p className="alert-error mt-4">
+                    The leave file you chose is a WFH check-in/out report (IN / OUT rows), not a leave report, so it was ignored.
+                    Upload it in the WFH file box. For leave, use the Computex report that lists each leave with its dates and
+                    type (PL / SL / CL / DA).
+                </p>
+            ) : null}
+
             {result && !error ? (
                 <div className="mt-4 space-y-2 text-xs text-[var(--color-warm-text)]">
                     <p className="text-[var(--color-ink)]">

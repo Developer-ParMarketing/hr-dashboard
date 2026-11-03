@@ -667,6 +667,15 @@ def load_wfh_computex_submit_format(
     return out
 
 
+def looks_like_in_out_file(df: pd.DataFrame) -> bool:
+    """Computex 'EMPLOYEE IN & OUT REQUEST DETAIL' / WFH punch export, not a leave report."""
+    c_sit = find_col(df, ("Situation", "situation", "Direction", "direction"))
+    if not c_sit:
+        return False
+    vals = df[c_sit].astype(str).str.strip().str.upper()
+    return int(vals.isin(["IN", "OUT"]).sum()) > 0
+
+
 def load_leave_overrides(
     path: str, target_y: int, target_m: int
 ) -> dict[tuple[str, str, int, int, int], str]:
@@ -676,6 +685,10 @@ def load_leave_overrides(
     except Exception:
         return out
     if df.empty:
+        return out
+    if looks_like_in_out_file(df):
+        # WFH / in-out request export (Situation IN/OUT). Its "Purpose: Personal" column would
+        # otherwise be read as PL (personal leave) and mark WFH days as leave.
         return out
 
     c_code = find_col(
@@ -1072,8 +1085,13 @@ def main() -> None:
     leave_map: dict[tuple[str, str, int, int, int], str] = {}
     wfh_map: dict[tuple[str, str, int, int, int], str] = {}
 
+    leave_file_is_in_out = False
     if leave_p and leave_p != "-":
         leave_map = load_leave_overrides(leave_p, year, month)
+        try:
+            leave_file_is_in_out = looks_like_in_out_file(read_merge_table(leave_p))
+        except Exception:
+            leave_file_is_in_out = False
     if wfh_p and wfh_p != "-":
         wfh_map = load_wfh_overrides(wfh_p, year, month)
 
@@ -1090,6 +1108,7 @@ def main() -> None:
                     "abCandidates": ab_candidates,
                     "leaveKeys": len(leave_map),
                     "wfhKeys": len(wfh_map),
+                    "leaveFileIsInOut": leave_file_is_in_out,
                     "unmatchedSample": unmatched_sample,
                     "reportType": report_type,
                     "reportDay": report_day,

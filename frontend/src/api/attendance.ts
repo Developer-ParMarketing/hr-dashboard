@@ -242,6 +242,7 @@ export type ApplyLeaveWfhResult = {
   changes: { code: string; name: string; date: string; from: string; to: string }[]
   skippedPresent: { code: string; name: string; date: string; from: string; to: string }[]
   persisted: { company: string; error?: string }[]
+  crossCheck?: { leaveFileIsInOut?: boolean }
 }
 
 export async function applyLeaveWfhFiles(opts: {
