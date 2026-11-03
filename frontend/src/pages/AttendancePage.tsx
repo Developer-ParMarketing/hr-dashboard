@@ -765,12 +765,14 @@ export function AttendancePage({
 
   useEffect(() => {
     if (!user || registerOnly) return
+    if (hrUploadOnly) return
     if (allowEdit && tab === 'upload') return
     if (usesRegisterBrowse) return
     void loadSavedPeriod(reportYear, reportMonth, companyCode)
   }, [
     user,
     registerOnly,
+    hrUploadOnly,
     allowEdit,
     tab,
     loadSavedPeriod,
@@ -782,6 +784,7 @@ export function AttendancePage({
 
   useEffect(() => {
     if (!user || registerOnly) return
+    if (hrUploadOnly) return
     if (allowEdit && tab === 'upload') return
     if (usesRegisterBrowse) return
     return subscribeEmployeeRegistryUpdated(() => {
@@ -790,6 +793,7 @@ export function AttendancePage({
   }, [
     user,
     registerOnly,
+    hrUploadOnly,
     allowEdit,
     tab,
     loadSavedPeriod,
@@ -950,6 +954,16 @@ export function AttendancePage({
     if (!isAttendanceOpenIntent(location.state)) return
     navigate('/attendance-detail', { replace: true, state: location.state })
   }, [registerOnly, hrUploadOnly, location.state, navigate])
+
+
+  // HR `/attendance` is upload-only. A review tab in the URL (e.g. ?tab=weekly from a dashboard link)
+  // used to start a load → forced back to Upload → load again loop. Review lives on Attendance history.
+  useEffect(() => {
+    if (registerOnly || !hrUploadOnly) return
+    const t = searchParams.get('tab')
+    if (t !== 'daily' && t !== 'weekly' && t !== 'monthly') return
+    navigate(`/attendance-detail?${searchParams.toString()}`, { replace: true })
+  }, [registerOnly, hrUploadOnly, searchParams, navigate])
 
   useEffect(() => {
     if (registerOnly) return
