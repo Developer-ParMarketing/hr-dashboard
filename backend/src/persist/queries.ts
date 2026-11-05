@@ -477,21 +477,21 @@ export async function loadMonthSnapshot(
     }
     emps = company
       ? await query<EmpRow>(
-          `${EMPLOYEE_WITH_TEAM}
+        `${EMPLOYEE_WITH_TEAM}
            WHERE e.id = ANY($1::int[])
              AND (e.company = $2 OR e.company IS NULL OR e.company = '')
            ORDER BY e.employee_code`,
-          [restrictToEmployeeIds, company],
-        )
+        [restrictToEmployeeIds, company],
+      )
       : await query<EmpRow>(
-          `${EMPLOYEE_WITH_TEAM}
+        `${EMPLOYEE_WITH_TEAM}
            WHERE e.id = ANY($1::int[])
            ORDER BY e.employee_code`,
-          [restrictToEmployeeIds],
-        );
+        [restrictToEmployeeIds],
+      );
   } else if (company) {
     emps = await query<EmpRow>(
-        `${EMPLOYEE_WITH_TEAM}
+      `${EMPLOYEE_WITH_TEAM}
          WHERE e.id IN (
            SELECT DISTINCT d.employee_id
            FROM daily_attendance d
@@ -499,19 +499,19 @@ export async function loadMonthSnapshot(
          )
            AND e.company = $3
          ORDER BY e.employee_code`,
-        [from, to, company],
-      );
+      [from, to, company],
+    );
   } else {
     emps = await query<EmpRow>(
-        `${EMPLOYEE_WITH_TEAM}
+      `${EMPLOYEE_WITH_TEAM}
          WHERE e.id IN (
            SELECT DISTINCT d.employee_id
            FROM daily_attendance d
            WHERE d.attendance_date BETWEEN $1 AND $2
          )
          ORDER BY e.employee_code`,
-        [from, to],
-      );
+      [from, to],
+    );
   }
 
   emps = dedupeEmployeesById(emps);
@@ -652,35 +652,35 @@ export async function loadMonthSnapshot(
     weekly: weeklyRows
       .filter((w) => allowedEmployeeIds.has(w.employee_id))
       .map((w) => {
-      const emp = emps.find((e) => e.id === w.employee_id);
-      const weekStart = String(w.week_start).slice(0, 10);
-      const weekEnd = String(w.week_end).slice(0, 10);
-      const frozen = isWeeklyFrozen(w.status);
-      const edited = dailyRows.some((d) => {
-        if (d.employee_id !== w.employee_id) return false;
-        const dt = String(d.attendance_date).slice(0, 10);
-        return dt >= weekStart && dt <= weekEnd && (d.origin === "hr_edit" || d.origin === "approved");
-      });
-      const layer = frozen ? "approved" : w.hr_deduction != null || edited ? "hr_edit" : "calculated";
-      return {
-        id: w.id,
-        employeeId: w.employee_id,
-        employeeCode: emp?.employee_code ?? "",
-        employeeName: emp?.name ?? "",
-        salary: emp?.salary ?? null,
-        weekStart,
-        weekEnd,
-        totalHours: w.total_hours,
-        requiredHours: w.required_hours,
-        deficitHours: w.deficit_hours,
-        deduction: w.deduction,
-        status: w.status,
-        approvedBy: w.approved_by,
-        approvedAt: w.approved_at,
-        layer,
-        hrDeduction: w.hr_deduction,
-      };
-    }),
+        const emp = emps.find((e) => e.id === w.employee_id);
+        const weekStart = String(w.week_start).slice(0, 10);
+        const weekEnd = String(w.week_end).slice(0, 10);
+        const frozen = isWeeklyFrozen(w.status);
+        const edited = dailyRows.some((d) => {
+          if (d.employee_id !== w.employee_id) return false;
+          const dt = String(d.attendance_date).slice(0, 10);
+          return dt >= weekStart && dt <= weekEnd && (d.origin === "hr_edit" || d.origin === "approved");
+        });
+        const layer = frozen ? "approved" : w.hr_deduction != null || edited ? "hr_edit" : "calculated";
+        return {
+          id: w.id,
+          employeeId: w.employee_id,
+          employeeCode: emp?.employee_code ?? "",
+          employeeName: emp?.name ?? "",
+          salary: emp?.salary ?? null,
+          weekStart,
+          weekEnd,
+          totalHours: w.total_hours,
+          requiredHours: w.required_hours,
+          deficitHours: w.deficit_hours,
+          deduction: w.deduction,
+          status: w.status,
+          approvedBy: w.approved_by,
+          approvedAt: w.approved_at,
+          layer,
+          hrDeduction: w.hr_deduction,
+        };
+      }),
     leave: leaveRows.filter((row) => allowedEmployeeIds.has(row.employee_id)),
     wfh: wfhRows.filter((row) => allowedEmployeeIds.has(row.employee_id)),
     salary: salaryRows.filter((row) => allowedEmployeeIds.has(row.employee_id)),
@@ -869,6 +869,8 @@ export async function saveWeeklyEdit(
         const date = cellStr(raw.date).slice(0, 10);
         if (!date || date < weekStart || date > weekEnd) continue;
         const hours = parseHoursValue(raw.hours);
+        // An empty day is "no change", never an AB edit (that would hide machine punches).
+        if (!cellStr(raw.mark) && !hours) continue;
         const mark = markFromToken(cellStr(raw.mark)) || (hours ? "P" : "AB");
         const token = tokenFromMark(mark, hours);
         const [yy, mm, dd] = date.split("-").map((v) => Number.parseInt(v, 10));

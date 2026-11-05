@@ -211,7 +211,10 @@ async function runSync(opts: {
     }
 
     const byCode = new Map<string, Map<string, string[]>>();
+    /** Days the machine recorded anything at all (any company). No punches company-wide = machine off. */
+    const machineDays = new Set<string>();
     for (const p of punches as EsslPunch[]) {
+        machineDays.add(p.date);
         let days = byCode.get(p.code);
         if (!days) byCode.set(p.code, (days = new Map()));
         const list = days.get(p.date) ?? [];
@@ -292,6 +295,8 @@ async function runSync(opts: {
                 if (dow === 0 || offDays.has(dow) || holidays.has(date) || date === today || protectedWithoutPunch(existing)) {
                     continue;
                 }
+                // Nobody punched at all that day: machine not installed yet / switched off — not evidence of absence.
+                if (!machineDays.has(date)) continue;
                 want = { token: "AB", inTime: "", outTime: "", hours: null };
             }
 

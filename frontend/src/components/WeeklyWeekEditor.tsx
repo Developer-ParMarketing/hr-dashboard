@@ -68,6 +68,18 @@ export function WeeklyWeekEditor({ week, dailyRecords, saving, policyCompany, on
     return map
   }, [dailyRecords, week.employeeCode, week.employeeId])
 
+  const [initialDays] = useState<DayEdit[]>(() =>
+    datesInclusive(weekStart, weekEnd).map((date) => {
+      const row = byDate.get(date)
+      const mark = markFromAttendanceToken(row?.statusToken ?? row?.dailyStatus ?? '')
+      const hours = row?.workingHours
+      return {
+        date,
+        mark: mark || (new Date(`${date}T00:00:00`).getDay() === 0 ? 'WO' : ''),
+        hoursText: hours != null && Number.isFinite(hours) ? formatHoursHm(hours) : '',
+      }
+    }),
+  )
   const [days, setDays] = useState<DayEdit[]>(() =>
     datesInclusive(weekStart, weekEnd).map((date) => {
       const row = byDate.get(date)
@@ -107,12 +119,20 @@ export function WeeklyWeekEditor({ week, dailyRecords, saving, policyCompany, on
 
   const save = async () => {
     const deduction = Number.parseFloat(deductionText)
+    // Save only the days HR actually changed. Untouched days (incl. future / not yet synced days)
+    // must stay free of manual edits, otherwise they hide the machine punches forever.
+    const changed = days.filter((d) => {
+      const before = initialDays.find((b) => b.date === d.date)
+      return !before || before.mark !== d.mark || before.hoursText !== d.hoursText
+    })
     void onSave({
-      days: days.map((d) => ({
-        date: d.date,
-        mark: d.mark || 'AB',
-        hours: parseHoursInput(d.hoursText),
-      })),
+      days: changed
+        .filter((d) => d.mark || parseHoursInput(d.hoursText) != null)
+        .map((d) => ({
+          date: d.date,
+          mark: d.mark,
+          hours: parseHoursInput(d.hoursText),
+        })),
       deduction: Number.isFinite(deduction) ? deduction : 0,
       requiredHours: requiredHours,
     })
