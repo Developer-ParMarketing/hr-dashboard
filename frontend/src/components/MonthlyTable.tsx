@@ -327,14 +327,14 @@ export function MonthlyTable({
     const dataRows: string[][] = []
     for (const emp of rows) {
       const monthLeaveHours = leaveHoursForPeriod(emp, monthDays)
-        const monthScoped = monthlyHoursAndDeficitByCalendar(
-          emp,
-          reportYear,
-          reportMonth,
-          policyCompany,
-          weeklyRecords,
-          companyHolidays,
-        )
+      const monthScoped = monthlyHoursAndDeficitByCalendar(
+        emp,
+        reportYear,
+        reportMonth,
+        policyCompany,
+        weeklyRecords,
+        companyHolidays,
+      )
       const row: string[] = [emp.employeeCode || '', emp.employeeName]
       for (let blockIdx = 0; blockIdx < visibleCalendarWeeks.length; blockIdx++) {
         const weekDays = visibleCalendarWeeks[blockIdx]!
@@ -439,389 +439,387 @@ export function MonthlyTable({
       {teamPeriodSummary ? (
         <TeamPeriodSummarySection kicker="Team totals" summary={teamPeriodSummary} />
       ) : null}
-    <section className="card overflow-hidden">
-      <div className="card-head">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand)]">
-              Totals
-            </p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight text-[var(--color-ink)]">Monthly</h2>
-            <LegendExpandPanel>
-              <AttendanceColorLegend variant="grid" />
-            </LegendExpandPanel>
-            {saveError ? <p className="mt-3 text-sm text-red-700">{saveError}</p> : null}
-            {showApproval ? (
-              <>
-                <p className="mt-3 max-w-2xl text-xs leading-relaxed text-[color-mix(in_srgb,var(--color-warm-text)_88%,transparent)]">
-                  Review and edit daily marks here, then select employees and approve monthly attendance for
-                  payroll. Daily and weekly tabs are view/edit only.
-                </p>
-              <BulkWeekApprovalBar
-                selectableCount={selectableEmployeeCount}
-                countLabel="employees"
-                selectedCount={bulk.selectedCount}
-                selectedSummary={bulkSelectedSummary}
-                allSelected={bulk.allSelected}
-                someSelected={bulk.someSelected}
-                busy={bulk.busy}
-                onToggleAll={bulk.toggleAll}
-                onApprove={() => void runBulkAction('approved')}
-                onReject={() => void runBulkAction('rejected')}
-                variant="monthly"
-              />
-              </>
-            ) : null}
-          </div>
-          <div className="flex flex-col items-stretch gap-3 sm:ml-auto sm:items-end">
-            <div className="flex flex-wrap items-start justify-end gap-2">
-              <label className="text-sm text-[var(--color-warm-text)]">
-                <span className="mr-2 text-xs font-medium">Day hours</span>
-                <select
-                  value={dayHoursMode}
-                  onChange={(e) => {
-                    setDayHoursMode(e.target.value as 'compact' | 'inline')
-                    setExpandedDayKey(null)
-                  }}
-                  className="field field-compact"
-                >
-                  <option value="compact">Click day to see hours</option>
-                  <option value="inline">Show P(08:18) in cells</option>
-                </select>
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                {simpleExcelExport ? (
-                  <button
-                    type="button"
-                    onClick={() => downloadMonthlyExcel('without_time')}
-                    disabled={rows.length === 0}
-                    className="btn-primary"
+      <section className="card overflow-hidden">
+        <div className="card-head">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-[var(--color-brand)]">
+                Totals
+              </p>
+              <h2 className="mt-1 text-lg font-semibold tracking-tight text-[var(--color-ink)]">Monthly</h2>
+              <LegendExpandPanel>
+                <AttendanceColorLegend variant="grid" />
+              </LegendExpandPanel>
+              {saveError ? <p className="mt-3 text-sm text-red-700">{saveError}</p> : null}
+              {showApproval ? (
+                <>
+                  <p className="mt-3 max-w-2xl text-xs leading-relaxed text-[color-mix(in_srgb,var(--color-warm-text)_88%,transparent)]">
+                    Review and edit daily marks here, then select employees and approve monthly attendance for
+                    payroll. Daily and weekly tabs are view/edit only.
+                  </p>
+                  <BulkWeekApprovalBar
+                    selectableCount={selectableEmployeeCount}
+                    countLabel="employees"
+                    selectedCount={bulk.selectedCount}
+                    selectedSummary={bulkSelectedSummary}
+                    allSelected={bulk.allSelected}
+                    someSelected={bulk.someSelected}
+                    busy={bulk.busy}
+                    onToggleAll={bulk.toggleAll}
+                    onApprove={() => void runBulkAction('approved')}
+                    onReject={() => void runBulkAction('rejected')}
+                    variant="monthly"
+                  />
+                </>
+              ) : null}
+            </div>
+            <div className="flex flex-col items-stretch gap-3 sm:ml-auto sm:items-end">
+              <div className="flex flex-wrap items-start justify-end gap-2">
+                <label className="text-sm text-[var(--color-warm-text)]">
+                  <span className="mr-2 text-xs font-medium">Day hours</span>
+                  <select
+                    value={dayHoursMode}
+                    onChange={(e) => {
+                      setDayHoursMode(e.target.value as 'compact' | 'inline')
+                      setExpandedDayKey(null)
+                    }}
+                    className="field field-compact"
                   >
-                    Download Excel
-                  </button>
-                ) : (
-                  <>
-                    <span className="text-xs font-medium text-[var(--color-warm-text)]">Download</span>
+                    <option value="compact">Click day to see hours</option>
+                    <option value="inline">Show P(08:18) in cells</option>
+                  </select>
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {simpleExcelExport ? (
                     <button
                       type="button"
                       onClick={() => downloadMonthlyExcel('without_time')}
                       disabled={rows.length === 0}
-                      className="btn-secondary"
-                    >
-                      Without time
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => downloadMonthlyExcel('with_time')}
-                      disabled={rows.length === 0}
                       className="btn-primary"
                     >
-                      With time
+                      Download Excel
                     </button>
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <span className="text-xs font-medium text-[var(--color-warm-text)]">Download</span>
+                      <button
+                        type="button"
+                        onClick={() => downloadMonthlyExcel('without_time')}
+                        disabled={rows.length === 0}
+                        className="btn-secondary"
+                      >
+                        Without time
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadMonthlyExcel('with_time')}
+                        disabled={rows.length === 0}
+                        className="btn-primary"
+                      >
+                        With time
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              <label className="flex flex-wrap items-center justify-end gap-2 text-sm text-[var(--color-warm-text)]">
+                <span className="text-xs font-medium text-[color-mix(in_srgb,var(--color-ink)_50%,transparent)]">
+                  View by week
+                </span>
+                <select
+                  value={weekScope === 'all' ? 'all' : String(weekScope)}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setWeekScope(v === 'all' ? 'all' : Number(v))
+                  }}
+                  className="field field-compact"
+                >
+                  <option value="all">All weeks</option>
+                  {calendarWeeks.map((_, i) => (
+                    <option key={i + 1} value={String(i + 1)}>
+                      Week {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <label className="flex flex-wrap items-center justify-end gap-2 text-sm text-[var(--color-warm-text)]">
-              <span className="text-xs font-medium text-[color-mix(in_srgb,var(--color-ink)_50%,transparent)]">
-                View by week
-              </span>
-              <select
-                value={weekScope === 'all' ? 'all' : String(weekScope)}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setWeekScope(v === 'all' ? 'all' : Number(v))
-                }}
-                className="field field-compact"
-              >
-                <option value="all">All weeks</option>
-                {calendarWeeks.map((_, i) => (
-                  <option key={i + 1} value={String(i + 1)}>
-                    Week {i + 1}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
         </div>
-      </div>
 
-      <div className="table-scroll">
-        <table className="min-w-max w-full border-collapse text-left text-xs sm:text-sm">
-          <thead className="sticky top-0 z-10 shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-brand)_12%,var(--color-warm-muted))]">
-            <tr>
-              {showApproval ? (
-                <th className={`sticky left-0 z-20 w-10 min-w-10 whitespace-nowrap px-2 text-center ${thHead}`}>
-                  <BulkSelectCheckbox
-                    checked={bulk.allSelected}
-                    indeterminate={bulk.someSelected}
-                    disabled={bulk.busy || selectableIds.length === 0}
-                    onChange={bulk.toggleAll}
-                    ariaLabel="Select all employees for monthly approval"
-                  />
-                </th>
-              ) : null}
-              <th
-                className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-20 w-24 min-w-24 whitespace-nowrap px-3 text-left ${thHead}`}
-              >
-                EmpCode
-              </th>
-              <th
-                className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-20 min-w-[10rem] whitespace-nowrap px-3 text-left ${thHead}`}
-              >
-                EmpName
-              </th>
-              {visibleCalendarWeeks.map((weekDays, blockIdx) => {
-                const wn = visibleWeekNumbers[blockIdx] ?? blockIdx + 1
-                return (
-                  <Fragment key={`w${wn}-block-head`}>
-                    <th className={`whitespace-nowrap text-center ${thHead}`}>
-                      {`Late (W${wn})`}
-                    </th>
-                    {weekDays.map((day) => (
-                      <th key={`w${wn}-d${day}`} className={`whitespace-nowrap text-center ${thHead}`}>
-                        {`${day} ${monthShort}`}
-                      </th>
-                    ))}
-                    <th className={`whitespace-nowrap text-center ${thHead}`}>Total working hours</th>
-                    <th className={`whitespace-nowrap text-center ${thHead}`}>
-                      {`Week ${wn} expected`}
-                    </th>
-                    <th className={`whitespace-nowrap text-center ${thHead}`}>
-                      {`Week ${wn} deficit`}
-                    </th>
-                    <th className={`whitespace-nowrap text-center ${thHead}`}>
-                      {`Week ${wn} leave hrs`}
-                    </th>
-                  </Fragment>
-                )
-              })}
-              <th className={`whitespace-nowrap text-center ${thHead}`}>Total working hours</th>
-              <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly expected</th>
-              <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly deficit</th>
-              <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly leave hrs</th>
-              <th className={`whitespace-nowrap text-center ${thHead}`}>Present days</th>
-              {allowEdit ? (
-                <th className={`whitespace-nowrap text-center ${thHead}`}>Actions</th>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
+        <div className="table-scroll">
+          <table className="min-w-max w-full border-collapse text-left text-xs sm:text-sm">
+            <thead className="sticky top-0 z-10 shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-brand)_12%,var(--color-warm-muted))]">
               <tr>
-                <td
-                  colSpan={colCount}
-                  className="border border-[var(--color-warm-muted)] px-4 py-8 text-center text-[color-mix(in_srgb,var(--color-ink)_45%,transparent)]"
-                >
-                  No rows match your search or filter.
-                </td>
-              </tr>
-            ) : (
-              groupedRows.flatMap((section) => {
-                const header =
-                  groupByTeam ? (
-                    <TeamGroupHeader
-                      key={`team-header-${section.group.teamId ?? 'unassigned'}`}
-                      group={section.group}
-                      memberCount={section.items.length}
-                      colSpan={colCount}
+                {showApproval ? (
+                  <th className={`sticky left-0 z-20 w-10 min-w-10 whitespace-nowrap px-2 text-center ${thHead}`}>
+                    <BulkSelectCheckbox
+                      checked={bulk.allSelected}
+                      indeterminate={bulk.someSelected}
+                      disabled={bulk.busy || selectableIds.length === 0}
+                      onChange={bulk.toggleAll}
+                      ariaLabel="Select all employees for monthly approval"
                     />
-                  ) : null
-                const bodyRows = section.items.map((emp, rowIndex) => {
-                const stripBg = tableRowStripBg(rowIndex)
-                const monthLeaveHours = leaveHoursForPeriod(emp, monthDays)
-        const monthScoped = monthlyHoursAndDeficitByCalendar(
-          emp,
-          reportYear,
-          reportMonth,
-          policyCompany,
-          weeklyRecords,
-          companyHolidays,
-        )
-                const isEditing = editingCode === emp.employeeCode
-                const isSaving = savingCode === emp.employeeCode
-                const canEdit = canEditEmployee(emp)
-                const rowWeeklyIds = weeklyIdsByCode.get(emp.employeeCode) ?? []
-                const rowSelectState = bulk.rowState(rowWeeklyIds)
-                return (
-                  <tr
-                    key={`month-${emp.id ?? emp.employeeCode}-${rowIndex}`}
-                    className="bg-[var(--color-surface)] even:bg-[color-mix(in_srgb,var(--color-warm-page)_45%,#fff)]"
+                  </th>
+                ) : null}
+                <th
+                  className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-20 w-24 min-w-24 whitespace-nowrap px-3 text-left ${thHead}`}
+                >
+                  EmpCode
+                </th>
+                <th
+                  className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-20 min-w-[10rem] whitespace-nowrap px-3 text-left ${thHead}`}
+                >
+                  EmpName
+                </th>
+                {visibleCalendarWeeks.map((weekDays, blockIdx) => {
+                  const wn = visibleWeekNumbers[blockIdx] ?? blockIdx + 1
+                  return (
+                    <Fragment key={`w${wn}-block-head`}>
+                      <th className={`whitespace-nowrap text-center ${thHead}`}>
+                        {`Late (W${wn})`}
+                      </th>
+                      {weekDays.map((day) => (
+                        <th key={`w${wn}-d${day}`} className={`whitespace-nowrap text-center ${thHead}`}>
+                          {`${day} ${monthShort}`}
+                        </th>
+                      ))}
+                      <th className={`whitespace-nowrap text-center ${thHead}`}>Total working hours</th>
+                      <th className={`whitespace-nowrap text-center ${thHead}`}>
+                        {`Week ${wn} expected`}
+                      </th>
+                      <th className={`whitespace-nowrap text-center ${thHead}`}>
+                        {`Week ${wn} deficit`}
+                      </th>
+                      <th className={`whitespace-nowrap text-center ${thHead}`}>
+                        {`Week ${wn} leave hrs`}
+                      </th>
+                    </Fragment>
+                  )
+                })}
+                <th className={`whitespace-nowrap text-center ${thHead}`}>Total working hours</th>
+                <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly expected</th>
+                <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly deficit</th>
+                <th className={`whitespace-nowrap text-center ${thHead}`}>Monthly leave hrs</th>
+                <th className={`whitespace-nowrap text-center ${thHead}`}>Present days</th>
+                {allowEdit ? (
+                  <th className={`whitespace-nowrap text-center ${thHead}`}>Actions</th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={colCount}
+                    className="border border-[var(--color-warm-muted)] px-4 py-8 text-center text-[color-mix(in_srgb,var(--color-ink)_45%,transparent)]"
                   >
-                    {showApproval ? (
-                      <td className="sticky left-0 z-[1] w-10 min-w-10 border border-[var(--color-warm-muted)] bg-inherit px-2 py-2 text-center">
-                        {rowSelectState !== 'none' ? (
-                          <BulkSelectCheckbox
-                            checked={rowSelectState === 'checked'}
-                            indeterminate={rowSelectState === 'indeterminate'}
-                            disabled={bulk.busy}
-                            onChange={() => {
-                              bulk.toggleMany(rowWeeklyIds, rowSelectState !== 'checked')
-                            }}
-                            ariaLabel={`Select ${emp.employeeName} for monthly approval`}
-                          />
+                    No rows match your search or filter.
+                  </td>
+                </tr>
+              ) : (
+                groupedRows.flatMap((section) => {
+                  const header =
+                    groupByTeam ? (
+                      <TeamGroupHeader
+                        key={`team-header-${section.group.teamId ?? 'unassigned'}`}
+                        group={section.group}
+                        memberCount={section.items.length}
+                        colSpan={colCount}
+                      />
+                    ) : null
+                  const bodyRows = section.items.map((emp, rowIndex) => {
+                    const stripBg = tableRowStripBg(rowIndex)
+                    const monthLeaveHours = leaveHoursForPeriod(emp, monthDays)
+                    const monthScoped = monthlyHoursAndDeficitByCalendar(
+                      emp,
+                      reportYear,
+                      reportMonth,
+                      policyCompany,
+                      weeklyRecords,
+                      companyHolidays,
+                    )
+                    const isEditing = editingCode === emp.employeeCode
+                    const isSaving = savingCode === emp.employeeCode
+                    const canEdit = canEditEmployee(emp)
+                    const rowWeeklyIds = weeklyIdsByCode.get(emp.employeeCode) ?? []
+                    const rowSelectState = bulk.rowState(rowWeeklyIds)
+                    return (
+                      <tr
+                        key={`month-${emp.id ?? emp.employeeCode}-${rowIndex}`}
+                        className="bg-[var(--color-surface)] even:bg-[color-mix(in_srgb,var(--color-warm-page)_45%,#fff)]"
+                      >
+                        {showApproval ? (
+                          <td className="sticky left-0 z-[1] w-10 min-w-10 border border-[var(--color-warm-muted)] bg-inherit px-2 py-2 text-center">
+                            {rowSelectState !== 'none' ? (
+                              <BulkSelectCheckbox
+                                checked={rowSelectState === 'checked'}
+                                indeterminate={rowSelectState === 'indeterminate'}
+                                disabled={bulk.busy}
+                                onChange={() => {
+                                  bulk.toggleMany(rowWeeklyIds, rowSelectState !== 'checked')
+                                }}
+                                ariaLabel={`Select ${emp.employeeName} for monthly approval`}
+                              />
+                            ) : null}
+                          </td>
                         ) : null}
-                      </td>
-                    ) : null}
-                    <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-mono text-[var(--color-ink)]`}>
-                      {emp.employeeCode || '-'}
-                    </td>
-                    <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] max-w-[min(200px,40vw)] whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-medium text-[var(--color-ink)] sm:max-w-none`}>
-                      {emp.employeeName}
-                    </td>
-                    {visibleCalendarWeeks.map((weekDays, blockIdx) => {
-                      const wn = visibleWeekNumbers[blockIdx] ?? blockIdx + 1
-                      const weekLateCount = weekDays.reduce((n, day) => {
-                        const idx = day - 1
-                        return n + (emp.dayLateFlags[idx] ? 1 : 0)
-                      }, 0)
-                      const scoped = weeklyHoursAndDeficitByCalendar(
-                        emp,
-                        reportYear,
-                        reportMonth,
-                        wn,
-                        policyCompany,
-                        weeklyRecords,
-                      )
-                      const leaveHours = leaveHoursForPeriod(emp, weekDays)
-                      const weekHours = scoped.hours
-                      const weekExpected = scoped.expectedTarget
-                      const weekDeficit = scoped.deficit
-                      return (
-                        <Fragment key={`w${wn}-block-${emp.employeeCode}-${emp.employeeName}`}>
-                          <td
-                            className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold ${
-                              weekLateCount > 0 ? 'bg-amber-100 text-amber-900' : 'text-emerald-700'
-                            }`}
-                          >
-                            {weekLateCount}
-                          </td>
-                          {weekDays.map((day) => {
-                            const i = day - 1
-                            const dailyRow = dailyRecordForEmployeeDay(
-                              dailyRecords,
-                              emp.employeeCode,
-                              reportYear,
-                              reportMonth,
-                              day,
-                            )
-                            const cell = employeeDayStatusToken(emp, i, dailyRow)
-                            const late = Boolean(emp.dayLateFlags[i])
-                            const isSunday = new Date(reportYear, reportMonth - 1, day).getDay() === 0
-                            const detail = monthlyDayHoursDetail(emp, i, dailyRow)
-                            const dayKey = `${emp.employeeCode}-${day}`
-                            return (
+                        <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-mono text-[var(--color-ink)]`}>
+                          {emp.employeeCode || '-'}
+                        </td>
+                        <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] max-w-[min(200px,40vw)] whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-medium text-[var(--color-ink)] sm:max-w-none`}>
+                          {emp.employeeName}
+                        </td>
+                        {visibleCalendarWeeks.map((weekDays, blockIdx) => {
+                          const wn = visibleWeekNumbers[blockIdx] ?? blockIdx + 1
+                          const weekLateCount = weekDays.reduce((n, day) => {
+                            const idx = day - 1
+                            return n + (emp.dayLateFlags[idx] ? 1 : 0)
+                          }, 0)
+                          const scoped = weeklyHoursAndDeficitByCalendar(
+                            emp,
+                            reportYear,
+                            reportMonth,
+                            wn,
+                            policyCompany,
+                            weeklyRecords,
+                          )
+                          const leaveHours = leaveHoursForPeriod(emp, weekDays)
+                          const weekHours = scoped.hours
+                          const weekExpected = scoped.expectedTarget
+                          const weekDeficit = scoped.deficit
+                          return (
+                            <Fragment key={`w${wn}-block-${emp.employeeCode}-${emp.employeeName}`}>
                               <td
-                                key={`w${wn}-d${day}-${emp.employeeCode}-${emp.employeeName}`}
-                                className={`border border-[var(--color-warm-muted)] px-1.5 py-1.5 text-center text-[11px] sm:text-xs ${
-                                  isEditing
-                                    ? stripBg
-                                    : cellClass(isSunday ? '' : cell, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[i]))
-                                } ${late && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
+                                className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold ${weekLateCount > 0 ? 'bg-amber-100 text-amber-900' : 'text-emerald-700'
+                                  }`}
                               >
-                                {isEditing && draftMarks && !isSunday ? (
-                                  <EditableMarkSelect
-                                    value={draftMarks[day] ?? ''}
-                                    onChange={(mark) =>
-                                      setDraftMarks({ ...draftMarks, [day]: mark })
-                                    }
-                                    ariaLabel={`Mark ${day} for ${emp.employeeName}`}
-                                  />
-                                ) : (
-                                  <MonthlyDayCell
-                                    detail={detail}
-                                    isSunday={isSunday}
-                                    showHoursInline={showHoursInline}
-                                    expanded={expandedDayKey === dayKey}
-                                    hasHours={detail.hoursLabel != null}
-                                    onToggle={() => {
-                                      setExpandedDayKey((prev) => (prev === dayKey ? null : dayKey))
-                                    }}
-                                  />
-                                )}
+                                {weekLateCount}
                               </td>
-                            )
-                          })}
-                          <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
-                            {weekHours == null
-                              ? '-'
-                              : decimalWorkedHoursToDurationHm(weekHours)}
+                              {weekDays.map((day) => {
+                                const i = day - 1
+                                const dailyRow = dailyRecordForEmployeeDay(
+                                  dailyRecords,
+                                  emp.employeeCode,
+                                  reportYear,
+                                  reportMonth,
+                                  day,
+                                )
+                                const cell = employeeDayStatusToken(emp, i, dailyRow)
+                                const late = Boolean(emp.dayLateFlags[i])
+                                const isSunday = new Date(reportYear, reportMonth - 1, day).getDay() === 0
+                                const detail = monthlyDayHoursDetail(emp, i, dailyRow)
+                                const dayKey = `${emp.employeeCode}-${day}`
+                                return (
+                                  <td
+                                    key={`w${wn}-d${day}-${emp.employeeCode}-${emp.employeeName}`}
+                                    className={`border border-[var(--color-warm-muted)] px-1.5 py-1.5 text-center text-[11px] sm:text-xs ${isEditing
+                                        ? stripBg
+                                        : cellClass(isSunday ? '' : detail.compactMark === 'HD' ? 'HD' : cell, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[i]))
+                                      } ${late && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
+                                  >
+                                    {isEditing && draftMarks && !isSunday ? (
+                                      <EditableMarkSelect
+                                        value={draftMarks[day] ?? ''}
+                                        onChange={(mark) =>
+                                          setDraftMarks({ ...draftMarks, [day]: mark })
+                                        }
+                                        ariaLabel={`Mark ${day} for ${emp.employeeName}`}
+                                      />
+                                    ) : (
+                                      <MonthlyDayCell
+                                        detail={detail}
+                                        isSunday={isSunday}
+                                        showHoursInline={showHoursInline}
+                                        expanded={expandedDayKey === dayKey}
+                                        hasHours={detail.hoursLabel != null}
+                                        onToggle={() => {
+                                          setExpandedDayKey((prev) => (prev === dayKey ? null : dayKey))
+                                        }}
+                                      />
+                                    )}
+                                  </td>
+                                )
+                              })}
+                              <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
+                                {weekHours == null
+                                  ? '-'
+                                  : decimalWorkedHoursToDurationHm(weekHours)}
+                              </td>
+                              <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
+                                {weekExpected == null
+                                  ? '-'
+                                  : decimalWorkedHoursToDurationHm(weekExpected)}
+                              </td>
+                              <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[color-mix(in_srgb,var(--color-brand)_38%,#000)] ${stripBg}`}>
+                                {weekDeficit == null
+                                  ? '-'
+                                  : decimalWorkedHoursToDurationHm(weekDeficit)}
+                              </td>
+                              <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
+                                {leaveHours == null ? '-' : decimalWorkedHoursToDurationHm(leaveHours)}
+                              </td>
+                            </Fragment>
+                          )
+                        })}
+                        <td
+                          className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
+                        >
+                          {monthScoped.hours == null
+                            ? '-'
+                            : decimalWorkedHoursToDurationHm(monthScoped.hours)}
+                        </td>
+                        <td
+                          className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
+                        >
+                          {monthScoped.expectedTarget == null
+                            ? '-'
+                            : decimalWorkedHoursToDurationHm(monthScoped.expectedTarget)}
+                        </td>
+                        <td
+                          className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[color-mix(in_srgb,var(--color-brand)_38%,#000)] ${stripBg}`}
+                        >
+                          {monthScoped.deficit == null
+                            ? '-'
+                            : decimalWorkedHoursToDurationHm(monthScoped.deficit)}
+                        </td>
+                        <td
+                          className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
+                        >
+                          {monthLeaveHours == null ? '-' : decimalWorkedHoursToDurationHm(monthLeaveHours)}
+                        </td>
+                        <td
+                          className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums font-semibold text-[var(--color-ink)] ${stripBg}`}
+                        >
+                          {countPresentDaysInCalendar(
+                            emp,
+                            monthDays,
+                            dailyRecords,
+                            reportYear,
+                            reportMonth,
+                          )}
+                        </td>
+                        {allowEdit ? (
+                          <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}>
+                            <InlineEditActions
+                              editing={isEditing}
+                              saving={isSaving}
+                              disabled={!canEdit}
+                              onEdit={() => startEdit(emp)}
+                              onCancel={cancelEdit}
+                              onSave={() => void saveEdit(emp)}
+                            />
                           </td>
-                          <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
-                            {weekExpected == null
-                              ? '-'
-                              : decimalWorkedHoursToDurationHm(weekExpected)}
-                          </td>
-                          <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[color-mix(in_srgb,var(--color-brand)_38%,#000)] ${stripBg}`}>
-                            {weekDeficit == null
-                              ? '-'
-                              : decimalWorkedHoursToDurationHm(weekDeficit)}
-                          </td>
-                          <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}>
-                            {leaveHours == null ? '-' : decimalWorkedHoursToDurationHm(leaveHours)}
-                          </td>
-                        </Fragment>
-                      )
-                    })}
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
-                    >
-                      {monthScoped.hours == null
-                        ? '-'
-                        : decimalWorkedHoursToDurationHm(monthScoped.hours)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
-                    >
-                      {monthScoped.expectedTarget == null
-                        ? '-'
-                        : decimalWorkedHoursToDurationHm(monthScoped.expectedTarget)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[color-mix(in_srgb,var(--color-brand)_38%,#000)] ${stripBg}`}
-                    >
-                      {monthScoped.deficit == null
-                        ? '-'
-                        : decimalWorkedHoursToDurationHm(monthScoped.deficit)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
-                    >
-                      {monthLeaveHours == null ? '-' : decimalWorkedHoursToDurationHm(monthLeaveHours)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums font-semibold text-[var(--color-ink)] ${stripBg}`}
-                    >
-                      {countPresentDaysInCalendar(
-                        emp,
-                        monthDays,
-                        dailyRecords,
-                        reportYear,
-                        reportMonth,
-                      )}
-                    </td>
-                    {allowEdit ? (
-                      <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}>
-                        <InlineEditActions
-                          editing={isEditing}
-                          saving={isSaving}
-                          disabled={!canEdit}
-                          onEdit={() => startEdit(emp)}
-                          onCancel={cancelEdit}
-                          onSave={() => void saveEdit(emp)}
-                        />
-                      </td>
-                    ) : null}
-                  </tr>
-                )
+                        ) : null}
+                      </tr>
+                    )
+                  })
+                  return header ? [header, ...bodyRows] : bodyRows
                 })
-                return header ? [header, ...bodyRows] : bodyRows
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   )
 }

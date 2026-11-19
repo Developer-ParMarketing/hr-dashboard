@@ -30,6 +30,10 @@ export function AttendanceColorLegend({ variant }: { variant: 'daily' | 'grid' }
               Present / worked
             </Item>
             <Item>
+              <Swatch className="bg-orange-200" />
+              HD - half day (present, under 5 hours)
+            </Item>
+            <Item>
               <Swatch className="bg-sky-200" />
               WFH
             </Item>
@@ -81,30 +85,30 @@ export function AttendanceColorLegend({ variant }: { variant: 'daily' | 'grid' }
               </span>
             </Item>
           </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-[color-mix(in_srgb,var(--color-warm-text)_88%,transparent)]">
-              In Time is the scheduled shift start. Check-in and Out Time are stored punches.
-              Late minutes is how long after shift start the check-in was. {lateNote}
-            </p>
+          <p className="mt-1.5 text-xs leading-relaxed text-[color-mix(in_srgb,var(--color-warm-text)_88%,transparent)]">
+            In Time is the scheduled shift start. Check-in and Out Time are stored punches.
+            Late minutes is how long after shift start the check-in was. {lateNote}
+          </p>
+        </div>
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[color-mix(in_srgb,var(--color-ink)_62%,transparent)]">
+            Data layer
+          </p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2.5">
+            <Item>
+              <Swatch className="bg-stone-200" />
+              Calculated from import
+            </Item>
+            <Item>
+              <Swatch className="bg-amber-200" />
+              HR edit (import kept)
+            </Item>
+            <Item>
+              <Swatch className="bg-emerald-200" />
+              Approved weekly result
+            </Item>
           </div>
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[color-mix(in_srgb,var(--color-ink)_62%,transparent)]">
-              Data layer
-            </p>
-            <div className="flex flex-wrap gap-x-5 gap-y-2.5">
-              <Item>
-                <Swatch className="bg-stone-200" />
-                Calculated from import
-              </Item>
-              <Item>
-                <Swatch className="bg-amber-200" />
-                HR edit (import kept)
-              </Item>
-              <Item>
-                <Swatch className="bg-emerald-200" />
-                Approved weekly result
-              </Item>
-            </div>
-          </div>
+        </div>
       </div>
     )
   }
@@ -119,6 +123,10 @@ export function AttendanceColorLegend({ variant }: { variant: 'daily' | 'grid' }
           <Item>
             <Swatch className="bg-emerald-200" />
             Present / worked
+          </Item>
+          <Item>
+            <Swatch className="bg-orange-200" />
+            HD - half day (present, under 5 hours)
           </Item>
           <Item>
             <Swatch className="bg-red-200" />

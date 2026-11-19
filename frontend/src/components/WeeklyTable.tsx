@@ -12,6 +12,7 @@ import {
   dailyRecordForEmployeeDay,
   decimalWorkedHoursToDurationHm,
   formatWeeklyDayCellLabel,
+  isDailyRecordHalfDay,
   isPresentToken,
   leaveHoursForPeriod,
   matchesSearch,
@@ -512,110 +513,108 @@ export function WeeklyTable({
                     />
                   ) : null
                 const bodyRows = section.items.map((emp, rowIndex) => {
-                const stripBg = tableRowStripBg(rowIndex)
-                const weekLateCount = lateCountInWeek(emp, activeWeekDays)
-                const isEditing = editingCode === emp.employeeCode
-                const isSaving = savingCode === emp.employeeCode
-                const canEdit = canEditEmployeeWeek(emp)
-                const weeklyId = weeklyIdByCode.get(emp.employeeCode) ?? null
-                return (
-                <tr
-                  key={`${emp.employeeCode}-${emp.employeeName}-weekly`}
-                  className="bg-[var(--color-surface)] even:bg-[color-mix(in_srgb,var(--color-warm-page)_45%,#fff)]"
-                >
-                  {showApproval ? (
-                    <td className="sticky left-0 z-[1] w-10 min-w-10 border border-[var(--color-warm-muted)] bg-inherit px-2 py-2.5 text-center">
-                      {weeklyId != null ? (
-                        <BulkSelectCheckbox
-                          checked={bulk.isSelected(weeklyId)}
-                          disabled={bulk.busy}
-                          onChange={() => bulk.toggle(weeklyId)}
-                          ariaLabel={`Select ${emp.employeeName} for approval`}
-                        />
+                  const stripBg = tableRowStripBg(rowIndex)
+                  const weekLateCount = lateCountInWeek(emp, activeWeekDays)
+                  const isEditing = editingCode === emp.employeeCode
+                  const isSaving = savingCode === emp.employeeCode
+                  const canEdit = canEditEmployeeWeek(emp)
+                  const weeklyId = weeklyIdByCode.get(emp.employeeCode) ?? null
+                  return (
+                    <tr
+                      key={`${emp.employeeCode}-${emp.employeeName}-weekly`}
+                      className="bg-[var(--color-surface)] even:bg-[color-mix(in_srgb,var(--color-warm-page)_45%,#fff)]"
+                    >
+                      {showApproval ? (
+                        <td className="sticky left-0 z-[1] w-10 min-w-10 border border-[var(--color-warm-muted)] bg-inherit px-2 py-2.5 text-center">
+                          {weeklyId != null ? (
+                            <BulkSelectCheckbox
+                              checked={bulk.isSelected(weeklyId)}
+                              disabled={bulk.busy}
+                              onChange={() => bulk.toggle(weeklyId)}
+                              ariaLabel={`Select ${emp.employeeName} for approval`}
+                            />
+                          ) : null}
+                        </td>
                       ) : null}
-                    </td>
-                  ) : null}
-                  <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-mono text-[var(--color-ink)]`}>
-                    {emp.employeeCode || '-'}
-                  </td>
-                  <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-medium text-[var(--color-ink)]`}>
-                    {emp.employeeName}
-                  </td>
-                  <td
-                    className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold tabular-nums ${
-                      weekLateCount > 0
-                        ? 'bg-amber-100 text-amber-900'
-                        : 'text-emerald-700'
-                    }`}
-                  >
-                    {weekLateCount}
-                  </td>
-                  {activeWeekDays.map((day) => {
-                    const dayIdx = day - 1
-                    const dailyRow = dailyRecordForEmployeeDay(
-                      dailyRecords,
-                      emp.employeeCode,
-                      reportYear,
-                      reportMonth,
-                      day,
-                    )
-                    const token = employeeDayStatusToken(emp, dayIdx, dailyRow)
-                    const isLate = Boolean(emp.dayLateFlags[dayIdx])
-                    const isSunday = new Date(reportYear, reportMonth - 1, day).getDay() === 0
-                    const displayToken = isSunday
-                      ? 'Sun'
-                      : token.trim()
-                        ? tokenView === 'with_time'
-                          ? formatWeeklyDayCellLabel(emp, dayIdx, dailyRow)
-                          : plainDayDisplayMark(emp, dayIdx, dailyRow)
-                        : '-'
-                    return (
-                      <td
-                        key={`status-${day}`}
-                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${
-                          isEditing
-                            ? stripBg
-                            : cellClass(isSunday ? '' : token, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[dayIdx]))
-                        } ${isLate && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
-                      >
-                        {isEditing && draftMarks && !isSunday ? (
-                          <EditableMarkSelect
-                            value={draftMarks[day] ?? ''}
-                            onChange={(mark) =>
-                              setDraftMarks({ ...draftMarks, [day]: mark })
-                            }
-                            ariaLabel={`Mark ${day} for ${emp.employeeName}`}
-                          />
-                        ) : (
-                          displayToken
-                        )}
+                      <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-mono text-[var(--color-ink)]`}>
+                        {emp.employeeCode || '-'}
                       </td>
-                    )
-                  })}
-                  <WeekScopedSummaryCells
-                    emp={emp}
-                    weekNo={activeWeekNo}
-                    reportYear={reportYear}
-                    reportMonth={reportMonth}
-                    rowStripBg={stripBg}
-                    policyCompany={policyCompany}
-                    weeklyRecords={weeklyRecords}
-                    companyHolidays={companyHolidays}
-                  />
-                  {allowEdit ? (
-                    <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${stripBg}`}>
-                      <InlineEditActions
-                        editing={isEditing}
-                        saving={isSaving}
-                        disabled={!canEdit}
-                        onEdit={() => startEdit(emp)}
-                        onCancel={cancelEdit}
-                        onSave={() => void saveEdit(emp)}
+                      <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-medium text-[var(--color-ink)]`}>
+                        {emp.employeeName}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold tabular-nums ${weekLateCount > 0
+                          ? 'bg-amber-100 text-amber-900'
+                          : 'text-emerald-700'
+                          }`}
+                      >
+                        {weekLateCount}
+                      </td>
+                      {activeWeekDays.map((day) => {
+                        const dayIdx = day - 1
+                        const dailyRow = dailyRecordForEmployeeDay(
+                          dailyRecords,
+                          emp.employeeCode,
+                          reportYear,
+                          reportMonth,
+                          day,
+                        )
+                        const token = employeeDayStatusToken(emp, dayIdx, dailyRow)
+                        const isLate = Boolean(emp.dayLateFlags[dayIdx])
+                        const isSunday = new Date(reportYear, reportMonth - 1, day).getDay() === 0
+                        const displayToken = isSunday
+                          ? 'Sun'
+                          : token.trim()
+                            ? tokenView === 'with_time'
+                              ? formatWeeklyDayCellLabel(emp, dayIdx, dailyRow)
+                              : plainDayDisplayMark(emp, dayIdx, dailyRow)
+                            : '-'
+                        return (
+                          <td
+                            key={`status-${day}`}
+                            className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${isEditing
+                              ? stripBg
+                              : cellClass(isSunday ? '' : dailyRow && isDailyRecordHalfDay(dailyRow) ? 'HD' : token, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[dayIdx]))
+                              } ${isLate && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
+                          >
+                            {isEditing && draftMarks && !isSunday ? (
+                              <EditableMarkSelect
+                                value={draftMarks[day] ?? ''}
+                                onChange={(mark) =>
+                                  setDraftMarks({ ...draftMarks, [day]: mark })
+                                }
+                                ariaLabel={`Mark ${day} for ${emp.employeeName}`}
+                              />
+                            ) : (
+                              displayToken
+                            )}
+                          </td>
+                        )
+                      })}
+                      <WeekScopedSummaryCells
+                        emp={emp}
+                        weekNo={activeWeekNo}
+                        reportYear={reportYear}
+                        reportMonth={reportMonth}
+                        rowStripBg={stripBg}
+                        policyCompany={policyCompany}
+                        weeklyRecords={weeklyRecords}
+                        companyHolidays={companyHolidays}
                       />
-                    </td>
-                  ) : null}
-                </tr>
-                )
+                      {allowEdit ? (
+                        <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${stripBg}`}>
+                          <InlineEditActions
+                            editing={isEditing}
+                            saving={isSaving}
+                            disabled={!canEdit}
+                            onEdit={() => startEdit(emp)}
+                            onCancel={cancelEdit}
+                            onSave={() => void saveEdit(emp)}
+                          />
+                        </td>
+                      ) : null}
+                    </tr>
+                  )
                 })
                 return header ? [header, ...bodyRows] : bodyRows
               })

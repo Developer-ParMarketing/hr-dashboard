@@ -352,28 +352,28 @@ export function normalizeEmployee(raw: RawEmployee): NormalizedEmployee {
   })?.[1]
   const shiftStart = toStr(
     raw.shiftStart ??
-      raw.shift_start ??
-      raw.shiftTime ??
-      raw.shift_time ??
-      raw.dutyStart ??
-      raw.duty_start ??
-      raw.shift ??
-      obj['S.InTime'] ??
-      obj['S. InTime'] ??
-      obj['S.In Time'] ??
-      obj['S InTime'] ??
-      obj['Shift In Time'] ??
-      shiftFromUnknownKey ??
-      '',
+    raw.shift_start ??
+    raw.shiftTime ??
+    raw.shift_time ??
+    raw.dutyStart ??
+    raw.duty_start ??
+    raw.shift ??
+    obj['S.InTime'] ??
+    obj['S. InTime'] ??
+    obj['S.In Time'] ??
+    obj['S InTime'] ??
+    obj['Shift In Time'] ??
+    shiftFromUnknownKey ??
+    '',
   )
   const rowInTime = toStr(
     raw.inTime ??
-      raw.in_time ??
-      obj['InTime'] ??
-      obj['A.InTime'] ??
-      obj['A. InTime'] ??
-      obj['IN TIME'] ??
-      '',
+    raw.in_time ??
+    obj['InTime'] ??
+    obj['A.InTime'] ??
+    obj['A. InTime'] ??
+    obj['IN TIME'] ??
+    '',
   )
   const days = getDailyArray(raw)
   const dayInTimes = getDayInTimes(raw)
@@ -491,6 +491,7 @@ function compactMarkFromLabel(label: string): string {
   const u = label.trim().toUpperCase()
   if (u.startsWith('WFH(')) return 'WFH'
   if (u.startsWith('P(')) return 'P'
+  if (u === 'HD' || u.startsWith('HD(')) return 'HD'
   if (isPaidLeaveToken(label)) return u
   return label
 }
@@ -518,6 +519,7 @@ export function cellClass(token: string, rowStripBg?: string, wfhUnverified: boo
   const t = token.trim()
   const u = t.toUpperCase()
   if (!t) return `${surface} text-[color-mix(in_srgb,var(--color-ink)_38%,transparent)]`
+  if (u === 'HD' || u.startsWith('HD(')) return 'bg-orange-100 text-orange-900 font-medium'
   if (isPresentToken(t)) return 'bg-emerald-50 text-emerald-800 font-medium'
   if (isAbsentToken(t)) return 'bg-red-50 text-red-800 font-medium'
   if (isWeeklyOffToken(t)) return 'bg-[color-mix(in_srgb,var(--color-warm-muted)_65%,#fff)] text-[var(--color-warm-text)]'
@@ -743,6 +745,7 @@ export function plainDayDisplayMark(
 ): string {
   const token = employeeDayStatusToken(emp, dayIndex, dailyRow)
   if (!token) return '-'
+  if (dailyRow && isDailyRecordHalfDay(dailyRow)) return 'HD'
   if (isPresentToken(token)) return 'P'
   if (isWfhToken(token)) return 'WFH'
   if (isPaidLeaveToken(token)) return token.toUpperCase()
@@ -757,6 +760,7 @@ export function formatWeeklyDayCellLabel(
 ): string {
   const token = employeeDayStatusToken(emp, dayIndex, dailyRow)
   if (!token) return '-'
+  if (dailyRow && isDailyRecordHalfDay(dailyRow)) return dailyRecordMarkLabel(dailyRow)
   const u = token.toUpperCase()
   if (u === 'WFH' || u.startsWith('WFH(')) {
     const fromCol = emp.dayWorkedHours[dayIndex]
@@ -853,8 +857,8 @@ export function rowMatchesFilter(
   const indices =
     calendarDays != null && calendarDays.length > 0
       ? calendarDays
-          .map((d) => d - 1)
-          .filter((i) => i >= 0 && i < emp.days.length)
+        .map((d) => d - 1)
+        .filter((i) => i >= 0 && i < emp.days.length)
       : emp.days.map((_, i) => i)
   if (indices.length === 0) return false
   if (filter === 'present') {
@@ -1579,7 +1583,29 @@ export function attendanceOriginClass(origin: string | null | undefined): string
 export function isDailyRecordWfhUnverified(row: DailyAttendanceRecord): boolean {
   return (row.note ?? '').trim().toLowerCase() === 'wfh_unverified'
 }
+/** Present at the office but worked less than this many hours: shown as HD (display only). */
+export const HALF_DAY_MAX_HOURS = 5
 
+function todayIsoLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * Office day (P) with worked hours above 0 but under HALF_DAY_MAX_HOURS, on a day that is over.
+ * Today is skipped (the person may still be at work). WFH, leave and single-punch days are never HD.
+ * Display only: hours, deficits and salary keep using the real worked hours.
+ */
+export function isDailyRecordHalfDay(row: DailyAttendanceRecord): boolean {
+  const status = (row.dailyStatus ?? '').trim().toLowerCase()
+  if (status === 'wfh') return false
+  if (!isPresentToken(dailyRecordToken(row))) return false
+  const h = row.workingHours
+  if (h == null || !Number.isFinite(h) || h <= 0 || h >= HALF_DAY_MAX_HOURS) return false
+  const date = String(row.attendanceDate ?? '').slice(0, 10)
+  if (!date || date >= todayIsoLocal()) return false
+  return true
+}
 /** Resolve attendance mark token for daily row styling (statusToken preferred). */
 export function dailyRecordToken(row: DailyAttendanceRecord): string {
   const status = (row.dailyStatus ?? '').trim().toLowerCase()
@@ -1611,6 +1637,7 @@ export function dailyRecordToken(row: DailyAttendanceRecord): string {
 
 /** Human-readable mark for the daily table (WFH, P(9:30), SL, etc.). */
 export function dailyRecordMarkLabel(row: DailyAttendanceRecord): string {
+  if (isDailyRecordHalfDay(row)) return `HD(${decimalWorkedHoursToDurationHm(row.workingHours as number)})`
   const status = (row.dailyStatus ?? '').trim().toLowerCase()
   let token = dailyRecordToken(row)
 
@@ -1658,10 +1685,10 @@ export function dailyRecordMarkLabel(row: DailyAttendanceRecord): string {
 
 /** Grid-style cell colours for daily marks (WFH, leave, absent, present, …). */
 export function dailyRecordCellClass(row: DailyAttendanceRecord, stripBg?: string): string {
-  const token = dailyRecordToken(row)
+  const token = isDailyRecordHalfDay(row) ? 'HD' : dailyRecordToken(row)
   const base = cellClass(token, stripBg, isDailyRecordWfhUnverified(row))
   const late = row.late || (row.dailyStatus ?? '').toLowerCase() === 'late'
-  if (late && (isPresentToken(token) || isWfhToken(token))) {
+  if (late && (isPresentToken(token) || isWfhToken(token) || token === 'HD')) {
     return `${base} ring-2 ring-amber-400 ring-inset`
   }
   return base
