@@ -88,7 +88,7 @@
   }
 
   .password-field-toggle {
-    @apply absolute right-2 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-lg p-1 text-[var(--color-warm-text)] transition hover:bg-[color-mix(in_srgb, var(--color-warm-page)_55%, #fff)] hover:text-[var(--color-ink)];
+    @apply absolute right-2 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-lg p-1 text-[var(--color-warm-text)] transition hover:bg-[color-mix(in_srgb,var(--color-warm-page)_55%,#fff)] hover:text-[var(--color-ink)];
   }
 
   .password-field-toggle:focus-visible {
@@ -520,7 +520,7 @@
   }
 
   .salary-period-filters .field-compact {
-    @apply rounded-full border-0 bg-[color-mix(in_srgb, var(--color-surface)_90%, var(--color-brand-muted))] text-sm;
+    @apply rounded-full border-0 bg-[color-mix(in_srgb,var(--color-surface)_90%,var(--color-brand-muted))] text-sm;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warm-muted) 70%, transparent);
   }
 
@@ -605,7 +605,7 @@
   }
 
   .salary-table-scroll {
-    @apply max-h-[min(62vh, 680px)] overflow-auto;
+    @apply max-h-[min(62vh,680px)] overflow-auto;
   }
 
   .salary-table-scroll .salary-sheet-table--readable tbody tr:nth-child(even) .salary-td:not(.salary-cell-sticky),
@@ -713,7 +713,7 @@
   }
 
   .admin-form-card {
-    @apply overflow-hidden rounded-xl border bg-[color-mix(in_srgb, var(--color-warm-muted)_10%, #fff)];
+    @apply overflow-hidden rounded-xl border bg-[color-mix(in_srgb,var(--color-warm-muted)_10%,#fff)];
     border-color: color-mix(in srgb, var(--color-warm-muted) 78%, transparent);
   }
 
@@ -760,7 +760,7 @@
   }
 
   .admin-teams-layout {
-    @apply grid gap-5 lg:grid-cols-[minmax(14rem, 18rem)_minmax(0, 1fr)];
+    @apply grid gap-5 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)];
   }
 
   .admin-team-pick {
@@ -789,7 +789,7 @@
   }
 
   .admin-form-fold summary::before {
-    content: '▸';
+    content: 'â–¸';
     @apply mr-2 inline-block text-[var(--color-brand)] transition;
   }
 
@@ -851,7 +851,7 @@
 
   .salary-sheet-table--readable .salary-th,
   .salary-sheet-table--readable .salary-td {
-    @apply border-0 border-b border-[color-mix(in_srgb, var(--color-warm-muted)_75%, transparent)] px-3 py-2.5;
+    @apply border-0 border-b border-[color-mix(in_srgb,var(--color-warm-muted)_75%,transparent)] px-3 py-2.5;
   }
 
   .salary-sheet-table--readable .salary-th {
@@ -989,7 +989,7 @@
   }
 
   .app-sidebar-backdrop {
-    @apply fixed inset-0 z-40 border-0 bg-[color-mix(in_srgb, var(--color-ink)_35%, transparent)] lg:hidden;
+    @apply fixed inset-0 z-40 border-0 bg-[color-mix(in_srgb,var(--color-ink)_35%,transparent)] lg:hidden;
   }
 
   .app-sidebar {
@@ -1149,7 +1149,7 @@
   }
 
   .app-notif-panel {
-    @apply absolute right-0 top-[calc(100%+0.35rem)] z-40 flex max-h-[min(28rem, calc(100dvh-5rem))] w-[min(20rem, calc(100vw-1.5rem))] flex-col overflow-hidden p-0 shadow-lg;
+    @apply absolute right-0 top-[calc(100%+0.35rem)] z-40 flex max-h-[min(28rem,calc(100dvh-5rem))] w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden p-0 shadow-lg;
   }
 
   .app-notif-panel-head {
@@ -1281,7 +1281,7 @@
   }
 
   .app-notif-shortcut:hover {
-    @apply border-[color-mix(in_srgb, var(--color-brand)_40%, transparent)] bg-[color-mix(in_srgb, var(--color-brand-muted)_40%, #fff)];
+    @apply border-[color-mix(in_srgb,var(--color-brand)_40%,transparent)] bg-[color-mix(in_srgb,var(--color-brand-muted)_40%,#fff)];
   }
 
   .app-notif-shortcut-text {
@@ -1442,7 +1442,7 @@
   }
 
   .dashboard-filter-bar {
-    @apply mt-5 w-full space-y-4 overflow-visible rounded-2xl border border-[color-mix(in_srgb, var(--color-warm-muted)_85%, #000)] bg-[color-mix(in_srgb, var(--color-surface)_92%, var(--color-brand-muted))] p-4;
+    @apply mt-5 w-full space-y-4 overflow-visible rounded-2xl border border-[color-mix(in_srgb,var(--color-warm-muted)_85%,#000)] bg-[color-mix(in_srgb,var(--color-surface)_92%,var(--color-brand-muted))] p-4;
   }
 
   .dashboard-filter-row {
@@ -1466,11 +1466,11 @@
   }
 
   .dashboard-filter-employees {
-    @apply space-y-2 border-t border-[color-mix(in_srgb, var(--color-warm-muted)_70%, #000)] pt-3;
+    @apply space-y-2 border-t border-[color-mix(in_srgb,var(--color-warm-muted)_70%,#000)] pt-3;
   }
 
   .dashboard-filter-employee-picker {
-    @apply relative w-full space-y-2 border-t border-[color-mix(in_srgb, var(--color-warm-muted)_70%, #000)] pt-3;
+    @apply relative w-full space-y-2 border-t border-[color-mix(in_srgb,var(--color-warm-muted)_70%,#000)] pt-3;
   }
 
   .dashboard-filter-employee-picker-head {
@@ -1490,7 +1490,7 @@
   }
 
   .dashboard-filter-employee-dropdown {
-    @apply mt-2 w-full rounded-xl border border-[color-mix(in_srgb, var(--color-warm-muted)_85%, #000)] bg-[var(--color-surface)] p-3 shadow-md;
+    @apply mt-2 w-full rounded-xl border border-[color-mix(in_srgb,var(--color-warm-muted)_85%,#000)] bg-[var(--color-surface)] p-3 shadow-md;
   }
 
   .dashboard-filter-employee-search {
@@ -1498,7 +1498,7 @@
   }
 
   .dashboard-filter-employee-dropdown-actions {
-    @apply mt-2 flex flex-wrap gap-2 border-b border-[color-mix(in_srgb, var(--color-warm-muted)_60%, transparent)] pb-2;
+    @apply mt-2 flex flex-wrap gap-2 border-b border-[color-mix(in_srgb,var(--color-warm-muted)_60%,transparent)] pb-2;
   }
 
   .dashboard-filter-employee-list {
@@ -1510,11 +1510,11 @@
   }
 
   .dashboard-filter-employee-option {
-    @apply flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-ink)] transition-colors hover:bg-[color-mix(in_srgb, var(--color-brand-muted)_45%, #fff)];
+    @apply flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-[var(--color-ink)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-brand-muted)_45%,#fff)];
   }
 
   .dashboard-filter-employee-option-selected {
-    @apply bg-[color-mix(in_srgb, var(--color-brand-muted)_55%, #fff)];
+    @apply bg-[color-mix(in_srgb,var(--color-brand-muted)_55%,#fff)];
   }
 
   .dashboard-filter-employee-option-check {
@@ -1542,19 +1542,19 @@
   }
 
   .dashboard-filter-chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-[color-mix(in_srgb, var(--color-warm-muted)_90%, #000)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-brand)];
+    @apply inline-flex items-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--color-warm-muted)_90%,#000)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-ink)] transition-colors hover:border-[var(--color-brand)];
   }
 
   .dashboard-filter-chip-remove {
-    @apply -mr-1 ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-sm leading-none text-[var(--color-warm-text)] hover:bg-[color-mix(in_srgb, var(--color-warm-muted)_50%, #000)] hover:text-[var(--color-ink)];
+    @apply -mr-1 ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-sm leading-none text-[var(--color-warm-text)] hover:bg-[color-mix(in_srgb,var(--color-warm-muted)_50%,#000)] hover:text-[var(--color-ink)];
   }
 
   .dashboard-filter-chip-active {
-    @apply border-[var(--color-brand)] bg-[color-mix(in_srgb, var(--color-brand-muted)_75%, #fff)] text-[var(--color-brand)];
+    @apply border-[var(--color-brand)] bg-[color-mix(in_srgb,var(--color-brand-muted)_75%,#fff)] text-[var(--color-brand)];
   }
 
   .dashboard-range-note {
-    @apply mb-4 rounded-xl border border-[color-mix(in_srgb, var(--color-brand)_25%, transparent)] bg-[color-mix(in_srgb, var(--color-brand-muted)_50%, #fff)] px-4 py-3 text-sm text-[var(--color-warm-text)];
+    @apply mb-4 rounded-xl border border-[color-mix(in_srgb,var(--color-brand)_25%,transparent)] bg-[color-mix(in_srgb,var(--color-brand-muted)_50%,#fff)] px-4 py-3 text-sm text-[var(--color-warm-text)];
   }
 
   .dashboard-notifications {
@@ -1624,7 +1624,7 @@
   }
 
   .dashboard-notif-tier-shortcut .dashboard-notif-tier-pill {
-    @apply bg-[color-mix(in_srgb, var(--color-brand-muted)_60%, #fff)] text-[var(--color-brand)];
+    @apply bg-[color-mix(in_srgb,var(--color-brand-muted)_60%,#fff)] text-[var(--color-brand)];
   }
 
   .dashboard-notif-shortcuts-title {
@@ -1706,11 +1706,11 @@
   }
 
   .dashboard-weekly-approvals-list {
-    @apply mt-2 space-y-2 rounded-xl border border-[color-mix(in_srgb, var(--color-warm-muted)_40%, #fff)] bg-[color-mix(in_srgb, var(--color-warm-muted)_12%, #fff)] p-3;
+    @apply mt-2 space-y-2 rounded-xl border border-[color-mix(in_srgb,var(--color-warm-muted)_40%,#fff)] bg-[color-mix(in_srgb,var(--color-warm-muted)_12%,#fff)] p-3;
   }
 
   .dashboard-weekly-approvals-toggle {
-    @apply flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left text-xs font-semibold text-[var(--color-brand)] transition hover:border-[color-mix(in_srgb, var(--color-warm-muted)_50%, #fff)] hover:bg-[color-mix(in_srgb, var(--color-warm-muted)_15%, #fff)];
+    @apply flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left text-xs font-semibold text-[var(--color-brand)] transition hover:border-[color-mix(in_srgb,var(--color-warm-muted)_50%,#fff)] hover:bg-[color-mix(in_srgb,var(--color-warm-muted)_15%,#fff)];
   }
 
   .dashboard-weekly-approvals-chevron {
@@ -1727,11 +1727,11 @@
   }
 
   .dashboard-weekly-approvals-track {
-    @apply h-2 overflow-hidden rounded-full bg-[color-mix(in_srgb, var(--color-warm-muted)_45%, #fff)];
+    @apply h-2 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-warm-muted)_45%,#fff)];
   }
 
   .dashboard-weekly-approvals-fill {
-    @apply h-full rounded-full bg-[color-mix(in_srgb, var(--color-brand)_75%, #fff)];
+    @apply h-full rounded-full bg-[color-mix(in_srgb,var(--color-brand)_75%,#fff)];
   }
 
   .dashboard-weekly-approvals-fill[data-complete='true'] {
@@ -1935,7 +1935,7 @@
   }
 
   .dashboard-checklist-done-wrap {
-    @apply mt-3 border-t border-[color-mix(in_srgb, var(--color-warm-muted)_75%, transparent)] pt-3;
+    @apply mt-3 border-t border-[color-mix(in_srgb,var(--color-warm-muted)_75%,transparent)] pt-3;
   }
 
   .dashboard-checklist-done-toggle {
@@ -2137,7 +2137,7 @@
   }
 
   .leave-cal-day--past {
-    @apply cursor-default text-[color-mix(in_srgb, var(--color-warm-text)_72%, #fff)];
+    @apply cursor-default text-[color-mix(in_srgb,var(--color-warm-text)_72%,#fff)];
   }
 
   .leave-cal-day--past:not(.leave-overview-day--marked) {
@@ -2229,7 +2229,7 @@
   }
 
   .leave-overview-day--cancelled {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-muted)_30%, #fff)] text-[var(--color-warm-text)] opacity-75;
+    @apply bg-[color-mix(in_srgb,var(--color-warm-muted)_30%,#fff)] text-[var(--color-warm-text)] opacity-75;
   }
 
   .leave-requests-cal-detail {
@@ -2542,7 +2542,7 @@
   }
 
   .dashboard-attendance-roster-scroll {
-    @apply max-h-[min(28rem, 55vh)] overflow-auto overscroll-contain rounded-xl border p-3;
+    @apply max-h-[min(28rem,55vh)] overflow-auto overscroll-contain rounded-xl border p-3;
     border-color: color-mix(in srgb, var(--color-warm-muted) 65%, transparent);
     background: color-mix(in srgb, var(--color-warm-page) 10%, #fff);
   }
@@ -2657,11 +2657,11 @@
   }
 
   .attendance-hbar-track {
-    @apply h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb, var(--color-warm-muted)_45%, #fff)];
+    @apply h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-warm-muted)_45%,#fff)];
   }
 
   .attendance-hbar-fill {
-    @apply h-full rounded-full bg-[color-mix(in_srgb, var(--color-brand)_75%, #fff)];
+    @apply h-full rounded-full bg-[color-mix(in_srgb,var(--color-brand)_75%,#fff)];
   }
 
   .attendance-hbar-fill[data-high='true'] {
@@ -2685,7 +2685,7 @@
   }
 
   .attendance-hbar-fill.attendance-risk-need-history {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-muted)_55%, #fff)];
+    @apply bg-[color-mix(in_srgb,var(--color-warm-muted)_55%,#fff)];
   }
 
   .attendance-viz-note {
@@ -3079,7 +3079,7 @@
   }
 
   .settings-layout {
-    @apply grid gap-6 lg:grid-cols-[minmax(0, 13.5rem)_minmax(0, 1fr)] lg:gap-8 lg:items-start;
+    @apply grid gap-6 lg:grid-cols-[minmax(0,13.5rem)_minmax(0,1fr)] lg:gap-8 lg:items-start;
   }
 
   .settings-rail {
@@ -3518,7 +3518,7 @@
   }
 
   .leave-balance-half-fill {
-    @apply h-full rounded-full bg-[color-mix(in_srgb, var(--color-ink)_22%, var(--color-warm-muted))];
+    @apply h-full rounded-full bg-[color-mix(in_srgb,var(--color-ink)_22%,var(--color-warm-muted))];
   }
 
   .reports-workspace-hint {
@@ -3671,7 +3671,7 @@
   }
 
   .leave-approver-list-scroll {
-    @apply max-h-[min(28rem, 55vh)] overflow-auto overscroll-contain rounded-xl border;
+    @apply max-h-[min(28rem,55vh)] overflow-auto overscroll-contain rounded-xl border;
     border-color: color-mix(in srgb, var(--color-warm-muted) 88%, transparent);
     background: color-mix(in srgb, var(--color-warm-page) 15%, #fff);
   }
@@ -3681,11 +3681,11 @@
   }
 
   .leave-approver-list-scroll .report-table th {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-muted)_22%, #fff)];
+    @apply bg-[color-mix(in_srgb,var(--color-warm-muted)_22%,#fff)];
   }
 
   .leave-approver-employee-scroll {
-    @apply max-h-[min(32rem, 60vh)] overflow-y-auto overscroll-contain rounded-xl border px-2 py-2;
+    @apply max-h-[min(32rem,60vh)] overflow-y-auto overscroll-contain rounded-xl border px-2 py-2;
     border-color: color-mix(in srgb, var(--color-warm-muted) 88%, transparent);
     background: color-mix(in srgb, var(--color-warm-page) 12%, #fff);
   }
@@ -3697,7 +3697,7 @@
   }
 
   .approver-records-table-panel {
-    @apply flex max-h-[min(70vh, 44rem)] flex-col overflow-hidden rounded-xl border;
+    @apply flex max-h-[min(70vh,44rem)] flex-col overflow-hidden rounded-xl border;
     border-color: color-mix(in srgb, var(--color-warm-muted) 88%, transparent);
     background: color-mix(in srgb, var(--color-warm-page) 12%, #fff);
   }
@@ -3768,7 +3768,7 @@
   }
 
   .report-status--neutral {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-muted)_35%, #fff)] text-[var(--color-warm-text)];
+    @apply bg-[color-mix(in_srgb,var(--color-warm-muted)_35%,#fff)] text-[var(--color-warm-text)];
   }
 
   .report-empty {
@@ -3812,7 +3812,7 @@
   }
 
   .report-table thead {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-muted)_22%, #fff)];
+    @apply bg-[color-mix(in_srgb,var(--color-warm-muted)_22%,#fff)];
   }
 
   .report-table th {
@@ -4126,7 +4126,7 @@
   }
 
   .doc-collapsible-panel summary::before {
-    content: '▸';
+    content: 'â–¸';
     @apply mt-0.5 shrink-0 text-sm font-bold text-[var(--color-brand)] transition-transform;
   }
 
@@ -4320,7 +4320,7 @@
   }
 
   .dashboard-stat-neutral {
-    @apply bg-[color-mix(in_srgb, var(--color-warm-page)_55%, #fff)];
+    @apply bg-[color-mix(in_srgb,var(--color-warm-page)_55%,#fff)];
   }
 
   .dashboard-stat-title {
@@ -4440,7 +4440,7 @@
   }
 
   .perf-studio-grid {
-    @apply grid lg:grid-cols-[minmax(12rem, 15rem)_minmax(0, 1fr)];
+    @apply grid lg:grid-cols-[minmax(12rem,15rem)_minmax(0,1fr)];
   }
 
   .perf-studio-nav {
@@ -4662,7 +4662,7 @@
   }
 
   .perf-admin-split {
-    @apply grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0, 14rem)_minmax(0, 1fr)];
+    @apply grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,14rem)_minmax(0,1fr)];
   }
 
   .perf-admin-pane {
