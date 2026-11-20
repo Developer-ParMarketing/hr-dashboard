@@ -546,7 +546,7 @@ export function MonthlyTable({
           </div>
         </div>
 
-        <div className="table-scroll">
+        <div className="table-scroll attendance-table-scroll">
           <table className="min-w-max w-full border-collapse text-left text-xs sm:text-sm">
             <thead className="sticky top-0 z-10 shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-brand)_12%,var(--color-warm-muted))]">
               <tr>
@@ -713,8 +713,8 @@ export function MonthlyTable({
                                   <td
                                     key={`w${wn}-d${day}-${emp.employeeCode}-${emp.employeeName}`}
                                     className={`border border-[var(--color-warm-muted)] px-1.5 py-1.5 text-center text-[11px] sm:text-xs ${isEditing
-                                        ? stripBg
-                                        : cellClass(isSunday ? '' : detail.compactMark === 'HD' ? 'HD' : cell, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[i]))
+                                      ? stripBg
+                                      : cellClass(isSunday ? '' : detail.compactMark === 'HD' ? 'HD' : cell, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[i]))
                                       } ${late && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
                                   >
                                     {isEditing && draftMarks && !isSunday ? (

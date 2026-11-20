@@ -452,7 +452,7 @@ export function WeeklyTable({
         </div>
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll attendance-table-scroll">
         <table className="min-w-max w-full border-collapse text-left text-xs sm:text-sm">
           <thead className="sticky top-0 z-10 shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-brand)_12%,var(--color-warm-muted))]">
             <tr>

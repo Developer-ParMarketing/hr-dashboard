@@ -255,7 +255,7 @@ export function DailyTable({
         ) : null}
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll attendance-table-scroll">
         <table className="min-w-max w-full border-collapse text-left text-xs sm:text-sm">
           <thead className="sticky top-0 z-30 shadow-[0_1px_0_0_color-mix(in_srgb,var(--color-brand)_12%,var(--color-warm-muted))]">
             <tr>
@@ -312,205 +312,203 @@ export function DailyTable({
                     />
                   ) : null
                 const bodyRows = section.items.map((row, rowIndex) => {
-                const stripBg = tableRowStripBg(rowIndex)
-                const lateMark = lateMarkForRecord(row)
-                const checkIn = formatStoredClock(row.checkInTime ?? row.inTime)
-                const present = isDailyRecordPresent(row)
-                const markLabel = dailyRecordMarkLabel(row)
-                const markClass = dailyRecordCellClass(row, stripBg)
-                const wfhUnverified = isDailyRecordWfhUnverified(row)
-                const isEditing = editingId === row.id
-                const isSaving = savingId === row.id
-                const canEdit = allowEdit && usingStoredRows && row.origin !== 'approved'
-                const weekRec = weeklyRecordForCalendarDay(
-                  weeklyRecords,
-                  row.employeeCode,
-                  reportYear,
-                  reportMonth,
-                  reportDay,
-                )
-                const weeklyId =
-                  weekRec && isWeeklyRecordSelectable(weekRec) ? weekRec.id : null
-                return (
-                  <tr key={`${row.id}-${row.employeeCode}-${row.attendanceDate}`}>
-                    {showApproval ? (
+                  const stripBg = tableRowStripBg(rowIndex)
+                  const lateMark = lateMarkForRecord(row)
+                  const checkIn = formatStoredClock(row.checkInTime ?? row.inTime)
+                  const present = isDailyRecordPresent(row)
+                  const markLabel = dailyRecordMarkLabel(row)
+                  const markClass = dailyRecordCellClass(row, stripBg)
+                  const wfhUnverified = isDailyRecordWfhUnverified(row)
+                  const isEditing = editingId === row.id
+                  const isSaving = savingId === row.id
+                  const canEdit = allowEdit && usingStoredRows && row.origin !== 'approved'
+                  const weekRec = weeklyRecordForCalendarDay(
+                    weeklyRecords,
+                    row.employeeCode,
+                    reportYear,
+                    reportMonth,
+                    reportDay,
+                  )
+                  const weeklyId =
+                    weekRec && isWeeklyRecordSelectable(weekRec) ? weekRec.id : null
+                  return (
+                    <tr key={`${row.id}-${row.employeeCode}-${row.attendanceDate}`}>
+                      {showApproval ? (
+                        <td
+                          className={`sticky left-0 z-[5] w-10 min-w-10 border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
+                        >
+                          {weeklyId != null ? (
+                            <BulkSelectCheckbox
+                              checked={bulk.isSelected(weeklyId)}
+                              disabled={bulk.busy}
+                              onChange={() => bulk.toggle(weeklyId)}
+                              ariaLabel={`Select ${row.employeeName} for approval`}
+                            />
+                          ) : null}
+                        </td>
+                      ) : null}
                       <td
-                        className={`sticky left-0 z-[5] w-10 min-w-10 border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
+                        className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[5] min-w-[12rem] max-w-[min(240px,45vw)] border border-[var(--color-warm-muted)] px-3 py-2 ${stripBg}`}
                       >
-                        {weeklyId != null ? (
-                          <BulkSelectCheckbox
-                            checked={bulk.isSelected(weeklyId)}
-                            disabled={bulk.busy}
-                            onChange={() => bulk.toggle(weeklyId)}
-                            ariaLabel={`Select ${row.employeeName} for approval`}
+                        <div className="font-medium text-[var(--color-ink)]">{row.employeeName || '-'}</div>
+                        <div className="font-mono text-[0.7rem] text-[var(--color-warm-text)]">
+                          {row.employeeCode || '-'}
+                        </div>
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
+                      >
+                        {formatDisplayDate(row.attendanceDate)}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold ${isEditing ? stripBg : markClass}`}
+                        title={
+                          wfhUnverified
+                            ? 'WFH from leave calendar only - not verified on WFH punch file'
+                            : undefined
+                        }
+                      >
+                        {isEditing && draft ? (
+                          <EditableMarkSelect
+                            value={draft.mark}
+                            onChange={(mark) => setDraft({ ...draft, mark })}
+                            ariaLabel={`Mark for ${row.employeeName}`}
                           />
-                        ) : null}
+                        ) : (
+                          markLabel
+                        )}
                       </td>
-                    ) : null}
-                    <td
-                      className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[5] min-w-[12rem] max-w-[min(240px,45vw)] border border-[var(--color-warm-muted)] px-3 py-2 ${stripBg}`}
-                    >
-                      <div className="font-medium text-[var(--color-ink)]">{row.employeeName || '-'}</div>
-                      <div className="font-mono text-[0.7rem] text-[var(--color-warm-text)]">
-                        {row.employeeCode || '-'}
-                      </div>
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
-                    >
-                      {formatDisplayDate(row.attendanceDate)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold ${isEditing ? stripBg : markClass}`}
-                      title={
-                        wfhUnverified
-                          ? 'WFH from leave calendar only - not verified on WFH punch file'
-                          : undefined
-                      }
-                    >
-                      {isEditing && draft ? (
-                        <EditableMarkSelect
-                          value={draft.mark}
-                          onChange={(mark) => setDraft({ ...draft, mark })}
-                          ariaLabel={`Mark for ${row.employeeName}`}
-                        />
-                      ) : (
-                        markLabel
-                      )}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
-                    >
-                      {formatStoredClock(row.shiftStart)}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
-                    >
-                      {isEditing && draft ? (
-                        <input
-                          value={draft.checkIn}
-                          onChange={(e) => setDraft({ ...draft, checkIn: e.target.value })}
-                          className={`${INLINE_FIELD_CLASS} min-w-[5.5rem] tabular-nums`}
-                          aria-label={`Check-in for ${row.employeeName}`}
-                        />
-                      ) : (
-                        checkIn
-                      )}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
-                    >
-                      {isEditing && draft ? (
-                        <input
-                          value={draft.outTime}
-                          onChange={(e) => setDraft({ ...draft, outTime: e.target.value })}
-                          className={`${INLINE_FIELD_CLASS} min-w-[5.5rem] tabular-nums`}
-                          aria-label={`Out time for ${row.employeeName}`}
-                        />
-                      ) : (
-                        formatStoredClock(row.outTime)
-                      )}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
-                      title={
-                        row.rawWorkingHours != null &&
-                        row.rawWorkingHours !== row.workingHours
-                          ? `Imported hours: ${formatWorkingHoursDisplay(row.rawWorkingHours)}`
-                          : undefined
-                      }
-                    >
-                      {isEditing && draft ? (
-                        <input
-                          value={draft.hoursText}
-                          onChange={(e) => setDraft({ ...draft, hoursText: e.target.value })}
-                          placeholder="H:MM"
-                          className={`${INLINE_FIELD_CLASS} min-w-[4.5rem] tabular-nums`}
-                          aria-label={`Working hours for ${row.employeeName}`}
-                        />
-                      ) : (
-                        formatWorkingHoursDisplay(row.workingHours)
-                      )}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
-                    >
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${attendanceOriginClass(row.origin)}`}
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums text-[var(--color-warm-text)] ${stripBg}`}
                       >
-                        {attendanceOriginLabel(row.origin)}
-                      </span>
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold uppercase ${
-                        !present
-                          ? `${stripBg} text-[var(--color-warm-text)]`
-                          : lateMark === 'Late'
-                            ? 'bg-amber-100 text-amber-900'
-                            : lateMark === 'On time'
-                              ? `${stripBg} text-emerald-700`
-                              : `${stripBg} text-[color-mix(in_srgb,var(--color-warm-text)_55%,transparent)]`
-                      }`}
-                    >
-                      {lateMark}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${
-                        lateMark === 'Late'
-                          ? 'bg-amber-100 font-semibold text-amber-900'
-                          : `${stripBg} text-[var(--color-warm-text)]`
-                      }`}
-                    >
-                      {lateMark === 'Late' && row.lateMinutes != null && Number.isFinite(row.lateMinutes)
-                        ? row.lateMinutes
-                        : '-'}
-                    </td>
-                    <td
-                      className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
-                    >
-                      {lateMark === 'Late' ? (
-                        (() => {
-                          const status = lateEmailStatus(
-                            notifyIndex,
-                            row.employeeId,
-                            row.attendanceDate,
-                          )
-                          const err = emailStatusError(
-                            notifyIndex,
-                            'late',
-                            row.employeeId,
-                            row.attendanceDate,
-                          )
-                          return status === 'none' ? (
-                            <WorkflowStatusBadge label={EMAIL_WORKFLOW_LABELS.pending} tone="warning" compact />
-                          ) : (
-                            <span title={err ?? undefined}>
-                              <WorkflowStatusBadge
-                                label={EMAIL_WORKFLOW_LABELS[status]}
-                                tone={emailWorkflowTone(status)}
-                                compact
-                              />
-                            </span>
-                          )
-                        })()
-                      ) : (
-                        '-'
-                      )}
-                    </td>
-                    {allowEdit ? (
-                      <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}>
-                        <InlineEditActions
-                          editing={isEditing}
-                          saving={isSaving}
-                          disabled={!canEdit}
-                          onEdit={() => startEdit(row)}
-                          onCancel={cancelEdit}
-                          onSave={() => void saveEdit(row)}
-                        />
+                        {formatStoredClock(row.shiftStart)}
                       </td>
-                    ) : null}
-                  </tr>
-                )
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
+                      >
+                        {isEditing && draft ? (
+                          <input
+                            value={draft.checkIn}
+                            onChange={(e) => setDraft({ ...draft, checkIn: e.target.value })}
+                            className={`${INLINE_FIELD_CLASS} min-w-[5.5rem] tabular-nums`}
+                            aria-label={`Check-in for ${row.employeeName}`}
+                          />
+                        ) : (
+                          checkIn
+                        )}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
+                      >
+                        {isEditing && draft ? (
+                          <input
+                            value={draft.outTime}
+                            onChange={(e) => setDraft({ ...draft, outTime: e.target.value })}
+                            className={`${INLINE_FIELD_CLASS} min-w-[5.5rem] tabular-nums`}
+                            aria-label={`Out time for ${row.employeeName}`}
+                          />
+                        ) : (
+                          formatStoredClock(row.outTime)
+                        )}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${stripBg}`}
+                        title={
+                          row.rawWorkingHours != null &&
+                            row.rawWorkingHours !== row.workingHours
+                            ? `Imported hours: ${formatWorkingHoursDisplay(row.rawWorkingHours)}`
+                            : undefined
+                        }
+                      >
+                        {isEditing && draft ? (
+                          <input
+                            value={draft.hoursText}
+                            onChange={(e) => setDraft({ ...draft, hoursText: e.target.value })}
+                            placeholder="H:MM"
+                            className={`${INLINE_FIELD_CLASS} min-w-[4.5rem] tabular-nums`}
+                            aria-label={`Working hours for ${row.employeeName}`}
+                          />
+                        ) : (
+                          formatWorkingHoursDisplay(row.workingHours)
+                        )}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
+                      >
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${attendanceOriginClass(row.origin)}`}
+                        >
+                          {attendanceOriginLabel(row.origin)}
+                        </span>
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold uppercase ${!present
+                            ? `${stripBg} text-[var(--color-warm-text)]`
+                            : lateMark === 'Late'
+                              ? 'bg-amber-100 text-amber-900'
+                              : lateMark === 'On time'
+                                ? `${stripBg} text-emerald-700`
+                                : `${stripBg} text-[color-mix(in_srgb,var(--color-warm-text)_55%,transparent)]`
+                          }`}
+                      >
+                        {lateMark}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center tabular-nums ${lateMark === 'Late'
+                            ? 'bg-amber-100 font-semibold text-amber-900'
+                            : `${stripBg} text-[var(--color-warm-text)]`
+                          }`}
+                      >
+                        {lateMark === 'Late' && row.lateMinutes != null && Number.isFinite(row.lateMinutes)
+                          ? row.lateMinutes
+                          : '-'}
+                      </td>
+                      <td
+                        className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}
+                      >
+                        {lateMark === 'Late' ? (
+                          (() => {
+                            const status = lateEmailStatus(
+                              notifyIndex,
+                              row.employeeId,
+                              row.attendanceDate,
+                            )
+                            const err = emailStatusError(
+                              notifyIndex,
+                              'late',
+                              row.employeeId,
+                              row.attendanceDate,
+                            )
+                            return status === 'none' ? (
+                              <WorkflowStatusBadge label={EMAIL_WORKFLOW_LABELS.pending} tone="warning" compact />
+                            ) : (
+                              <span title={err ?? undefined}>
+                                <WorkflowStatusBadge
+                                  label={EMAIL_WORKFLOW_LABELS[status]}
+                                  tone={emailWorkflowTone(status)}
+                                  compact
+                                />
+                              </span>
+                            )
+                          })()
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      {allowEdit ? (
+                        <td className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center ${stripBg}`}>
+                          <InlineEditActions
+                            editing={isEditing}
+                            saving={isSaving}
+                            disabled={!canEdit}
+                            onEdit={() => startEdit(row)}
+                            onCancel={cancelEdit}
+                            onSave={() => void saveEdit(row)}
+                          />
+                        </td>
+                      ) : null}
+                    </tr>
+                  )
                 })
                 return header ? [header, ...bodyRows] : bodyRows
               })
