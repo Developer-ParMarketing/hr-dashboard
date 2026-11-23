@@ -204,7 +204,7 @@ const uploadReimbursementReceipts = multer({
 });
 const uploadRelievingSignature = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
 });
 const downloads = new Map<string, string>();
 
