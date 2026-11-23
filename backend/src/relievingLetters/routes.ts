@@ -5,6 +5,7 @@ import { applyRelievingLetterOffboarding } from "../employees/offboarding.js";
 import { generateRelievingLetterDocx, safeDownloadBasename, templateAvailable } from "./docx.js";
 import { libreOfficePdfAvailable } from "./libreOffice.js";
 import { generateRelievingLetterPdf } from "./pdf.js";
+import { sendSmtpMail, smtpConfigured } from "../notify/smtp.js";
 import {
   loadUserSignature,
   saveUserSignature,
@@ -21,6 +22,32 @@ function statusFromError(e: unknown): number {
     return (e as { status: number }).status;
   }
   return 500;
+}
+
+export const DEFAULT_RELIEVING_EMAIL_SUBJECT =
+  "Experience cum Relieving Letter - {{employeeName}} ({{employeeCode}})";
+
+export const DEFAULT_RELIEVING_EMAIL_BODY = `Dear {{employeeName}},
+
+Please find attached your Experience cum Relieving Letter from Par Marketing Private Limited.
+
+We thank you for your contribution and wish you every success in your future endeavours.
+
+Regards,
+HR Team
+Par Marketing Private Limited`;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseEmailList(value: unknown): string[] {
+  return String(value ?? "")
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function fillTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key: string) => vars[key] ?? "");
 }
 
 function parseRememberSignature(value: unknown): boolean {
@@ -50,6 +77,9 @@ export async function handleRelievingLetterMeta(req: Request, res: Response): Pr
     templateAvailable: templateAvailable(),
     pdfConversionAvailable,
     hasSavedSignature: user?.id != null ? userHasSavedSignature(user.id) : false,
+    emailAvailable: smtpConfigured(),
+    defaultEmailSubject: DEFAULT_RELIEVING_EMAIL_SUBJECT,
+    defaultEmailBody: DEFAULT_RELIEVING_EMAIL_BODY,
     signatureHint: "PNG or JPEG with transparent background works best.",
     fields: [
       { key: "letterDate", label: "Letter date", hint: "Defaults to today" },
@@ -149,5 +179,84 @@ export async function handleGenerateRelievingLetterPdf(req: Request, res: Respon
     res.send(buffer);
   } catch (e) {
     res.status(statusFromError(e)).json({ message: e instanceof Error ? e.message : "Could not generate PDF" });
+  }
+}
+
+/** Build the signed PDF and email it to the employee (PDF attached). */
+export async function handleEmailRelievingLetter(req: Request, res: Response): Promise<void> {
+  const user = (req as AuthedRequest).authUser;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const upload = (req as Request & { file?: Express.Multer.File }).file;
+
+  if (!smtpConfigured()) {
+    res.status(503).json({
+      message: "Email is not set up on the server. Set SMTP_HOST, SMTP_USER and SMTP_PASS in backend/.env.",
+    });
+    return;
+  }
+
+  const to = parseEmailList(body.to);
+  const cc = parseEmailList(body.cc);
+  if (to.length === 0) {
+    res.status(400).json({ message: "Enter the employee's email address (To)." });
+    return;
+  }
+  const bad = [...to, ...cc].filter((e) => !EMAIL_RE.test(e));
+  if (bad.length > 0) {
+    res.status(400).json({ message: `Invalid email address: ${bad.join(", ")}` });
+    return;
+  }
+
+  let signature: Buffer | undefined = upload?.buffer;
+  if (!signature?.length && user?.id != null) {
+    signature = loadUserSignature(user.id) ?? undefined;
+  }
+  if (!signature?.length) {
+    res.status(400).json({ message: "Upload a digital signature (PNG or JPEG) before sending the letter." });
+    return;
+  }
+  if (parseRememberSignature(body.rememberSignature) && upload?.buffer?.length && user?.id != null) {
+    saveUserSignature(user.id, upload.buffer);
+  }
+
+  try {
+    const input = normalizeRelievingLetterInput(body);
+    const pdf = await generateRelievingLetterPdf(input, signature);
+    const vars = {
+      employeeName: input.employeeName,
+      employeeCode: input.employeeCode,
+      designation: input.designation,
+      dateOfJoining: input.dateOfJoining,
+      dateOfLeaving: input.dateOfLeaving,
+    };
+    const subject = fillTemplate(
+      String(body.subject ?? "").trim() || DEFAULT_RELIEVING_EMAIL_SUBJECT,
+      vars,
+    );
+    const text = fillTemplate(String(body.body ?? "").trim() || DEFAULT_RELIEVING_EMAIL_BODY, vars);
+    const filename = `${safeDownloadBasename(input.employeeName, input.employeeCode)}-exp-rel-letter.pdf`;
+
+    const result = await sendSmtpMail({
+      to: to.join(", "),
+      cc: cc.length ? cc : undefined,
+      subject,
+      body: text,
+      bccHr: false,
+      attachments: [{ filename, content: pdf }],
+    });
+    if (result.skipped) {
+      res.status(503).json({ message: "Email was not sent (SMTP dry-run or not configured on the server)." });
+      return;
+    }
+
+    const actor = actorFromRequest(req as AuthedRequest);
+    await applyRelievingLetterOffboarding({
+      employeeCode: input.employeeCode,
+      dateOfLeaving: input.dateOfLeaving,
+      actor,
+    });
+    res.json({ ok: true, sentTo: to, cc, subject });
+  } catch (e) {
+    res.status(statusFromError(e)).json({ message: e instanceof Error ? e.message : "Could not send the letter" });
   }
 }

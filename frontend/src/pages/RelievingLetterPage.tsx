@@ -7,8 +7,10 @@ import { listAdminEmployees, type AdminEmployeeDetail } from '../api/admin'
 import {
   downloadRelievingLetter,
   downloadRelievingLetterPdf,
+  emailRelievingLetter,
   fetchRelievingLetterMeta,
   saveRelievingSignature,
+  type RelievingLetterEmail,
   type RelievingLetterForm,
   type RelievingLetterMeta,
 } from '../api/relievingLetters'
@@ -51,6 +53,7 @@ function formFromEmployee(emp: AdminEmployeeDetail): Partial<RelievingLetterForm
     gender: emp.gender ?? '',
     designation: emp.department ?? '',
     dateOfJoining: emp.dateOfJoining ? formatDojDdMmYyyy(emp.dateOfJoining) : '',
+    dateOfLeaving: emp.dateOfLeaving ? formatDojDdMmYyyy(emp.dateOfLeaving) : '',
   }
 }
 
@@ -69,6 +72,9 @@ export function RelievingLetterPage() {
   const [signatureFile, setSignatureFile] = useState<File | null>(null)
   const [rememberSignature, setRememberSignature] = useState(true)
   const [signaturePreview, setSignaturePreview] = useState<string | null>(null)
+  const [email, setEmail] = useState<RelievingLetterEmail>({ to: '', cc: '', subject: '', body: '' })
+  const [sending, setSending] = useState(false)
+  const [sentMessage, setSentMessage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!allowed) return
@@ -78,7 +84,12 @@ export function RelievingLetterPage() {
     ])
       .then(([m, emps]) => {
         setMeta(m)
-        setEmployees(emps.filter((e) => e.effectiveStatus === 'active'))
+        setEmployees(emps)
+        setEmail((prev) => ({
+          ...prev,
+          subject: prev.subject || m.defaultEmailSubject || '',
+          body: prev.body || m.defaultEmailBody || '',
+        }))
       })
       .catch((e) => setError(errorMessage(e, 'Could not load letter settings')))
       .finally(() => setLoading(false))
@@ -86,21 +97,26 @@ export function RelievingLetterPage() {
 
   const sortedEmployees = useMemo(
     () =>
-      [...employees].sort((a, b) =>
-        a.employeeCode.localeCompare(b.employeeCode, undefined, { numeric: true }),
-      ),
+      [...employees].sort((a, b) => {
+        const byStatus = (a.effectiveStatus === 'active' ? 0 : 1) - (b.effectiveStatus === 'active' ? 0 : 1)
+        if (byStatus !== 0) return byStatus
+        return a.employeeCode.localeCompare(b.employeeCode, undefined, { numeric: true })
+      }),
     [employees],
   )
 
   const onSelectEmployee = useCallback(
     (id: number | '') => {
       setSelectedEmployeeId(id)
+      setSentMessage(null)
       if (id === '') {
         setForm(emptyForm())
+        setEmail((prev) => ({ ...prev, to: '' }))
         return
       }
       const emp = employees.find((e) => e.id === id)
       if (!emp) return
+      setEmail((prev) => ({ ...prev, to: emp.email ?? '' }))
       setForm((prev) => ({
         ...prev,
         ...formFromEmployee(emp),
@@ -116,8 +132,7 @@ export function RelievingLetterPage() {
     try {
       await downloadRelievingLetter(form)
       notifyEmployeeRegistryUpdated()
-      const emps = await listAdminEmployees(DEFAULT_UPLOAD_COMPANY)
-      setEmployees(emps.filter((e) => e.effectiveStatus === 'active'))
+      setEmployees(await listAdminEmployees(DEFAULT_UPLOAD_COMPANY))
     } catch (e) {
       setError(errorMessage(e, 'Could not generate letter'))
     } finally {
@@ -144,8 +159,7 @@ export function RelievingLetterPage() {
         rememberSignature: rememberSignature && Boolean(signatureFile),
       })
       notifyEmployeeRegistryUpdated()
-      const emps = await listAdminEmployees(DEFAULT_UPLOAD_COMPANY)
-      setEmployees(emps.filter((e) => e.effectiveStatus === 'active'))
+      setEmployees(await listAdminEmployees(DEFAULT_UPLOAD_COMPANY))
       if (rememberSignature && signatureFile) {
         setMeta((m) => (m ? { ...m, hasSavedSignature: true } : m))
       }
@@ -153,6 +167,42 @@ export function RelievingLetterPage() {
       setError(e instanceof Error ? e.message : 'Could not generate PDF')
     } finally {
       setGeneratingPdf(false)
+    }
+  }
+
+  async function onSendEmail() {
+    setError(null)
+    setSentMessage(null)
+    if (!meta?.emailAvailable) {
+      setError('Email is not set up on the server (SMTP). Download the PDF and send it manually.')
+      return
+    }
+    if (!email.to.trim()) {
+      setError("Enter the employee's email address.")
+      return
+    }
+    if (!signatureFile && !meta?.hasSavedSignature) {
+      setError('Upload a digital signature image (PNG or JPEG) before sending.')
+      return
+    }
+    setSending(true)
+    try {
+      const res = await emailRelievingLetter(form, email, {
+        signatureFile,
+        rememberSignature: rememberSignature && Boolean(signatureFile),
+      })
+      setSentMessage(
+        `Letter sent to ${res.sentTo.join(', ')}${res.cc.length ? ` (cc ${res.cc.join(', ')})` : ''}.`,
+      )
+      notifyEmployeeRegistryUpdated()
+      setEmployees(await listAdminEmployees(DEFAULT_UPLOAD_COMPANY))
+      if (rememberSignature && signatureFile) {
+        setMeta((m) => (m ? { ...m, hasSavedSignature: true } : m))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send the letter')
+    } finally {
+      setSending(false)
     }
   }
 
@@ -214,6 +264,11 @@ export function RelievingLetterPage() {
                 </p>
               ) : null}
               {error ? <p className="alert-error mb-4">{error}</p> : null}
+              {sentMessage ? (
+                <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                  {sentMessage}
+                </p>
+              ) : null}
 
               <div className="card border space-y-4 p-5 sm:p-6">
                 <label className="block text-sm">
@@ -230,6 +285,7 @@ export function RelievingLetterPage() {
                     {sortedEmployees.map((emp) => (
                       <option key={emp.id} value={emp.id}>
                         {emp.employeeCode} - {emp.name}
+                        {emp.effectiveStatus === 'active' ? '' : ' (left)'}
                       </option>
                     ))}
                   </select>
@@ -355,6 +411,73 @@ export function RelievingLetterPage() {
                     onClick={() => void onGenerateWord()}
                   >
                     {generating ? 'Generating…' : 'Download Word only'}
+                  </button>
+                </div>
+
+                <div className="border-t border-[var(--color-warm-muted)] pt-4">
+                  <p className="text-sm font-medium text-[var(--color-ink)]">Send by email</p>
+                  <p className="mt-1 text-xs leading-relaxed text-[var(--color-warm-text)]">
+                    The signed PDF is attached automatically. You can use {'{{employeeName}}'} and{' '}
+                    {'{{employeeCode}}'} in the subject or message.
+                  </p>
+                  {meta && !meta.emailAvailable ? (
+                    <p className="alert-error mt-2 text-sm">
+                      Email is not set up on the server (SMTP). Download the PDF and send it manually.
+                    </p>
+                  ) : null}
+                  <div className="mt-3 grid gap-3">
+                    <label className="block text-sm">
+                      <span className="font-medium text-[var(--color-ink)]">To</span>
+                      <input
+                        className="field mt-1.5 w-full"
+                        type="text"
+                        placeholder="employee@example.com"
+                        value={email.to}
+                        onChange={(e) => setEmail({ ...email, to: e.target.value })}
+                      />
+                      <span className="mt-1 block text-xs text-[var(--color-warm-text)]">
+                        Filled from the work email. Change it to the personal email if they have already left.
+                      </span>
+                    </label>
+                    <label className="block text-sm">
+                      <span className="font-medium text-[var(--color-ink)]">CC (optional)</span>
+                      <input
+                        className="field mt-1.5 w-full"
+                        type="text"
+                        placeholder="hr@parmarketing.agency, manager@parmarketing.agency"
+                        value={email.cc}
+                        onChange={(e) => setEmail({ ...email, cc: e.target.value })}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="font-medium text-[var(--color-ink)]">Subject</span>
+                      <input
+                        className="field mt-1.5 w-full"
+                        value={email.subject}
+                        onChange={(e) => setEmail({ ...email, subject: e.target.value })}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="font-medium text-[var(--color-ink)]">Message</span>
+                      <textarea
+                        className="field mt-1.5 min-h-[160px] w-full"
+                        value={email.body}
+                        onChange={(e) => setEmail({ ...email, body: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary mt-3"
+                    disabled={
+                      sending ||
+                      !meta?.templateAvailable ||
+                      !meta?.pdfConversionAvailable ||
+                      !meta?.emailAvailable
+                    }
+                    onClick={() => void onSendEmail()}
+                  >
+                    {sending ? 'Sending…' : 'Send letter by email'}
                   </button>
                 </div>
               </div>

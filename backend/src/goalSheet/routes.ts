@@ -83,8 +83,8 @@ export async function handleGetGoalSheetForEmployee(req: Request, res: Response)
     res.status(400).json({ message: "Invalid employee id" });
     return;
   }
-  const year = await resolveGoalSheetYear(req.query.year, employeeId);
   try {
+    const year = await resolveGoalSheetYear(req.query.year, employeeId);
     res.json({ submission: await buildGoalSheetSubmissionView(user, employeeId, year) });
   } catch (e) {
     res.status(statusFromError(e)).json({ message: e instanceof Error ? e.message : "Failed to load goal sheet" });
@@ -97,8 +97,8 @@ export async function handleListTeamGoalSheet(req: Request, res: Response): Prom
     res.status(401).json({ message: "Authentication required" });
     return;
   }
-  const year = await resolveGoalSheetYear(req.query.year);
   try {
+    const year = await resolveGoalSheetYear(req.query.year);
     res.json({ year, members: await listTeamGoalSheetSummaries(user, year) });
   } catch (e) {
     res.status(500).json({ message: e instanceof Error ? e.message : "Failed to list team" });
@@ -117,7 +117,13 @@ export async function handleSaveGoalSheet(req: Request, res: Response): Promise<
     return;
   }
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const year = await resolveGoalSheetYear(body.year ?? req.query.year, employeeId);
+  let year: number;
+  try {
+    year = await resolveGoalSheetYear(body.year ?? req.query.year, employeeId);
+  } catch (e) {
+    res.status(statusFromError(e)).json({ message: e instanceof Error ? e.message : "Failed to load goal sheet" });
+    return;
+  }
   const rawRole = String(body.role ?? "employee");
   const role =
     rawRole === "manager"
@@ -147,13 +153,13 @@ export async function handleSaveGoalSheet(req: Request, res: Response): Promise<
             : String(body.overallComments),
       answers: Array.isArray(body.answers)
         ? body.answers.map((row) => {
-            const item = row as Record<string, unknown>;
-            return {
-              criterionIndex: Number.parseInt(String(item.criterionIndex ?? ""), 10),
-              rating: parseOptionalRating(item.rating),
-              comments: item.comments as string | null | undefined,
-            };
-          })
+          const item = row as Record<string, unknown>;
+          return {
+            criterionIndex: Number.parseInt(String(item.criterionIndex ?? ""), 10),
+            rating: parseOptionalRating(item.rating),
+            comments: item.comments as string | null | undefined,
+          };
+        })
         : [],
     });
     res.json({ submission });
@@ -168,8 +174,8 @@ export async function handleListLeadershipGoalSheet(req: Request, res: Response)
     res.status(401).json({ message: "Authentication required" });
     return;
   }
-  const year = await resolveGoalSheetYear(req.query.year);
   try {
+    const year = await resolveGoalSheetYear(req.query.year);
     res.json({ year, members: await listLeadershipGoalSheetSummaries(user, year) });
   } catch (e) {
     res.status(500).json({ message: e instanceof Error ? e.message : "Failed to list leadership queue" });
@@ -186,8 +192,8 @@ export async function handleAdminListGoalSheet(req: Request, res: Response): Pro
     res.status(403).json({ message: "Admin or HR permission is required." });
     return;
   }
-  const year = await resolveGoalSheetYear(req.query.year);
   try {
+    const year = await resolveGoalSheetYear(req.query.year);
     res.json({ year, rows: await listAdminGoalSheetSummaries(year) });
   } catch (e) {
     res.status(500).json({ message: e instanceof Error ? e.message : "Failed to list goal sheets" });

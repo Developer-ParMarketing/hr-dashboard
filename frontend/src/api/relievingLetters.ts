@@ -16,6 +16,9 @@ export type RelievingLetterMeta = {
   templateAvailable: boolean
   pdfConversionAvailable: boolean
   hasSavedSignature: boolean
+  emailAvailable?: boolean
+  defaultEmailSubject?: string
+  defaultEmailBody?: string
   signatureHint?: string
   fields: Array<{ key: string; label: string; hint?: string }>
   placeholders: string[]
@@ -98,4 +101,33 @@ export async function saveRelievingSignature(signatureFile: File): Promise<void>
   const fd = new FormData()
   fd.append('signature', signatureFile)
   await client.post('/api/relieving-letters/signature', fd)
+}
+
+export type RelievingLetterEmail = {
+  to: string
+  cc: string
+  subject: string
+  body: string
+}
+
+/** Build the signed PDF on the server and email it to the employee. */
+export async function emailRelievingLetter(
+  form: RelievingLetterForm,
+  email: RelievingLetterEmail,
+  opts: { signatureFile?: File | null; rememberSignature?: boolean },
+): Promise<{ sentTo: string[]; cc: string[]; subject: string }> {
+  const fd = new FormData()
+  for (const [key, value] of Object.entries(form)) fd.append(key, value)
+  for (const [key, value] of Object.entries(email)) fd.append(key, value)
+  if (opts.rememberSignature) fd.append('rememberSignature', 'true')
+  if (opts.signatureFile) fd.append('signature', opts.signatureFile)
+  try {
+    const { data } = await client.post<{ sentTo: string[]; cc: string[]; subject: string }>(
+      '/api/relieving-letters/email',
+      fd,
+    )
+    return data
+  } catch (e) {
+    throw new Error(await parseBlobError(e, 'Could not send the letter'))
+  }
 }

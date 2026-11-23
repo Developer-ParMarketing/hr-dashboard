@@ -7,12 +7,12 @@ import { formatDojDdMmYyyy, parseFlexibleDoj } from "../employees/dojParse.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const JOINING_FORMS_FILENAME = "Fujitec Joining Forms.xlsx";
+export const JOINING_FORMS_FILENAME = "Par Marketing Joining Forms.xlsx";
 
 export const DEFAULT_COMPANY_NAME = "Par Marketing Pvt. Ltd.";
 
 export function joiningFormsAssetPath(): string {
-  return path.join(__dirname, "..", "..", "assets", "offer-letter", "Fujitec-Joining-Forms.xlsx");
+  return path.join(__dirname, "..", "..", "assets", "offer-letter", "Par-Marketing-Joining-Forms.xlsx");
 }
 
 /** HR, admin, Devanshi, and Jiya. */

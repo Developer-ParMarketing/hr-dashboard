@@ -150,6 +150,7 @@ import {
 import {
   handleGenerateRelievingLetter,
   handleGenerateRelievingLetterPdf,
+  handleEmailRelievingLetter,
   handleRelievingLetterMeta,
   handleSaveRelievingSignature,
   requireRelievingLetterAccessMiddleware,
@@ -321,6 +322,14 @@ function runBridge(
     );
   });
 }
+
+// A failed request must never take the whole API down (that shows as "Network Error" in the browser).
+process.on("unhandledRejection", (reason) => {
+  console.error("[api] unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[api] uncaught exception:", err);
+});
 
 const app = express();
 const PORT = Number(process.env.ATTENDANCE_API_PORT ?? 8787);
@@ -1497,7 +1506,15 @@ app.post(
     void handleGenerateRelievingLetterPdf(req, res);
   },
 );
-
+app.post(
+  "/api/relieving-letters/email",
+  requireAuth,
+  requireRelievingLetterAccessMiddleware,
+  uploadRelievingSignature.single("signature"),
+  (req, res) => {
+    void handleEmailRelievingLetter(req, res);
+  },
+);
 app.post(
   "/api/relieving-letters/signature",
   requireAuth,
