@@ -35,6 +35,8 @@ import { EditableMarkSelect } from './EditableMarkSelect'
 import { InlineEditActions } from './InlineEditActions'
 import { LegendExpandPanel } from './LegendExpandPanel'
 import { MonthlyDayCell } from './MonthlyDayCell'
+import { EmployeeAttendanceModal } from './EmployeeAttendanceModal'
+import { EmployeeNameCell } from './EmployeeNameCell'
 import { downloadMatrixAsXlsx } from '../utils/downloadMatrixXlsx'
 import { useBulkWeekApproval } from '../hooks/useBulkWeekApproval'
 import { weeklyIdsForEmployeeWeekDays } from '../utils/weeklyApproval'
@@ -97,6 +99,8 @@ export function MonthlyTable({
   const [savingCode, setSavingCode] = useState<string | null>(null)
   const [draftMarks, setDraftMarks] = useState<Record<number, string> | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [detailIndex, setDetailIndex] = useState<number | null>(null)
+  const [detailDay, setDetailDay] = useState<number | null>(null)
   const calendarWeeks = useMemo(
     () => calendarWeeksForMonth(reportYear, reportMonth).filter((w) => w.length > 0),
     [reportYear, reportMonth],
@@ -119,6 +123,9 @@ export function MonthlyTable({
     }
     return groupRowsByTeam(rows, (emp) => teamMetaFromEmployee(emp))
   }, [groupByTeam, rows])
+
+  /** Same order as on screen, for Prev / Next in the details view. */
+  const orderedRows = useMemo(() => groupedRows.flatMap((g) => g.items), [groupedRows])
 
   useEffect(() => {
     if (weekScope !== 'all' && (weekScope < 1 || weekScope > calendarWeeks.length)) {
@@ -485,7 +492,7 @@ export function MonthlyTable({
                     }}
                     className="field field-compact"
                   >
-                    <option value="compact">Click day to see hours</option>
+                    <option value="compact">Click day for details</option>
                     <option value="inline">Show P(08:18) in cells</option>
                   </select>
                 </label>
@@ -666,8 +673,14 @@ export function MonthlyTable({
                         <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-mono text-[var(--color-ink)]`}>
                           {emp.employeeCode || '-'}
                         </td>
-                        <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] max-w-[min(200px,40vw)] whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-medium text-[var(--color-ink)] sm:max-w-none`}>
-                          {emp.employeeName}
+                        <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[14rem] max-w-[min(280px,50vw)] whitespace-nowrap border border-[var(--color-warm-muted)] bg-inherit px-3 py-2 font-medium text-[var(--color-ink)] sm:max-w-none`}>
+                          <EmployeeNameCell
+                            emp={emp}
+                            onDetails={() => {
+                              setDetailDay(null)
+                              setDetailIndex(orderedRows.indexOf(emp))
+                            }}
+                          />
                         </td>
                         {visibleCalendarWeeks.map((weekDays, blockIdx) => {
                           const wn = visibleWeekNumbers[blockIdx] ?? blockIdx + 1
@@ -708,10 +721,18 @@ export function MonthlyTable({
                                 const late = Boolean(emp.dayLateFlags[i])
                                 const isSunday = new Date(reportYear, reportMonth - 1, day).getDay() === 0
                                 const detail = monthlyDayHoursDetail(emp, i, dailyRow)
-                                const dayKey = `${emp.employeeCode}-${day}`
                                 return (
                                   <td
                                     key={`w${wn}-d${day}-${emp.employeeCode}-${emp.employeeName}`}
+                                    onClick={
+                                      isEditing || isSunday || !showHoursInline
+                                        ? undefined
+                                        : () => {
+                                          setDetailDay(day)
+                                          setDetailIndex(orderedRows.indexOf(emp))
+                                        }
+                                    }
+                                    title={isEditing || isSunday ? undefined : 'Click for this day\'s details'}
                                     className={`border border-[var(--color-warm-muted)] px-1.5 py-1.5 text-center text-[11px] sm:text-xs ${isEditing
                                       ? stripBg
                                       : cellClass(isSunday ? '' : detail.compactMark === 'HD' ? 'HD' : cell, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[i]))
@@ -730,10 +751,12 @@ export function MonthlyTable({
                                         detail={detail}
                                         isSunday={isSunday}
                                         showHoursInline={showHoursInline}
-                                        expanded={expandedDayKey === dayKey}
+                                        expanded={false}
                                         hasHours={detail.hoursLabel != null}
                                         onToggle={() => {
-                                          setExpandedDayKey((prev) => (prev === dayKey ? null : dayKey))
+                                          setExpandedDayKey(null)
+                                          setDetailDay(day)
+                                          setDetailIndex(orderedRows.indexOf(emp))
                                         }}
                                       />
                                     )}
@@ -820,6 +843,24 @@ export function MonthlyTable({
           </table>
         </div>
       </section>
+      {detailIndex != null && orderedRows[detailIndex] ? (
+        <EmployeeAttendanceModal
+          employees={orderedRows}
+          index={detailIndex}
+          onIndexChange={setDetailIndex}
+          onClose={() => {
+            setDetailIndex(null)
+            setDetailDay(null)
+          }}
+          focusDay={detailDay}
+          reportYear={reportYear}
+          reportMonth={reportMonth}
+          dailyRecords={dailyRecords}
+          weeklyRecords={weeklyRecords}
+          companyHolidays={companyHolidays}
+          policyCompany={policyCompany}
+        />
+      ) : null}
     </>
   )
 }

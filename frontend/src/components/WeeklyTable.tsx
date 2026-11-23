@@ -43,6 +43,8 @@ import { isWeeklyRecordSelectable } from '../utils/weeklyApproval'
 import { groupRowsByTeam, teamMetaFromEmployee } from '../utils/teamGroups'
 import { confirmWeeklyBulkDecision } from '../utils/confirmAction'
 import { TeamGroupHeader } from './TeamGroupHeader'
+import { EmployeeAttendanceModal } from './EmployeeAttendanceModal'
+import { EmployeeNameCell } from './EmployeeNameCell'
 
 function fmtHours(n: number | null): string {
   if (n === null) return '-'
@@ -110,6 +112,8 @@ export function WeeklyTable({
   const [savingCode, setSavingCode] = useState<string | null>(null)
   const [draftMarks, setDraftMarks] = useState<Record<number, string> | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [detailIndex, setDetailIndex] = useState<number | null>(null)
+  const [detailDay, setDetailDay] = useState<number | null>(null)
 
   useEffect(() => {
     if (!pinnedWeekStart) return
@@ -181,6 +185,9 @@ export function WeeklyTable({
     }
     return groupRowsByTeam(rows, (emp) => teamMetaFromEmployee(emp))
   }, [groupByTeam, rows])
+
+  /** Same order as on screen, for Prev / Next in the details view. */
+  const orderedRows = useMemo(() => groupedRows.flatMap((g) => g.items), [groupedRows])
 
   const activeWeekStart =
     activeWeekDays.length > 0
@@ -539,8 +546,14 @@ export function WeeklyTable({
                       <td className={`sticky ${showApproval ? 'left-10' : 'left-0'} z-[1] w-24 min-w-24 border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-mono text-[var(--color-ink)]`}>
                         {emp.employeeCode || '-'}
                       </td>
-                      <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[10rem] border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-medium text-[var(--color-ink)]`}>
-                        {emp.employeeName}
+                      <td className={`sticky ${showApproval ? 'left-[7.5rem]' : 'left-24'} z-[1] min-w-[14rem] max-w-[min(280px,50vw)] border border-[var(--color-warm-muted)] bg-inherit px-3 py-2.5 font-medium text-[var(--color-ink)]`}>
+                        <EmployeeNameCell
+                          emp={emp}
+                          onDetails={() => {
+                            setDetailDay(null)
+                            setDetailIndex(orderedRows.indexOf(emp))
+                          }}
+                        />
                       </td>
                       <td
                         className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs font-semibold tabular-nums ${weekLateCount > 0
@@ -572,7 +585,16 @@ export function WeeklyTable({
                         return (
                           <td
                             key={`status-${day}`}
-                            className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${isEditing
+                            onClick={
+                              isEditing || isSunday
+                                ? undefined
+                                : () => {
+                                  setDetailDay(day)
+                                  setDetailIndex(orderedRows.indexOf(emp))
+                                }
+                            }
+                            title={isEditing || isSunday ? undefined : 'Click for this day\'s details'}
+                            className={`border border-[var(--color-warm-muted)] px-2 py-2 text-center text-xs ${isEditing || isSunday ? '' : 'cursor-pointer hover:brightness-95'} ${isEditing
                               ? stripBg
                               : cellClass(isSunday ? '' : dailyRow && isDailyRecordHalfDay(dailyRow) ? 'HD' : token, undefined, isSunday ? false : Boolean(emp.dayWfhUnverified[dayIdx]))
                               } ${isLate && !isEditing ? 'ring-2 ring-amber-400 ring-inset' : ''}`}
@@ -622,6 +644,24 @@ export function WeeklyTable({
           </tbody>
         </table>
       </div>
+      {detailIndex != null && orderedRows[detailIndex] ? (
+        <EmployeeAttendanceModal
+          employees={orderedRows}
+          index={detailIndex}
+          onIndexChange={setDetailIndex}
+          onClose={() => {
+            setDetailIndex(null)
+            setDetailDay(null)
+          }}
+          focusDay={detailDay}
+          reportYear={reportYear}
+          reportMonth={reportMonth}
+          dailyRecords={dailyRecords}
+          weeklyRecords={weeklyRecords}
+          companyHolidays={companyHolidays}
+          policyCompany={policyCompany}
+        />
+      ) : null}
     </section>
   )
 }
