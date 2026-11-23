@@ -176,21 +176,21 @@ function mapEmployeeRow(row: {
     status: row.status,
     salaryBase: hasBase
       ? {
-          ...staticSalaryFields({
-            inHand: Number(row.in_hand) || 0,
-            pfEmployee: Number(row.pf_employee) || 0,
-            esiEmployee: Number(row.esi_employee) || 0,
-            pt: Number(row.pt) || 0,
-            gratuity: Number(row.gratuity) || 0,
-            employerPf: Number(row.employer_pf) || 0,
-            employerPfArr: Number(row.employer_pf_arr) || 0,
-            employerEsi: Number(row.employer_esi) || 0,
-          }),
-          incrementPercent:
-            row.increment_percent != null && Number.isFinite(Number(row.increment_percent))
-              ? Number(row.increment_percent)
-              : null,
-        }
+        ...staticSalaryFields({
+          inHand: Number(row.in_hand) || 0,
+          pfEmployee: Number(row.pf_employee) || 0,
+          esiEmployee: Number(row.esi_employee) || 0,
+          pt: Number(row.pt) || 0,
+          gratuity: Number(row.gratuity) || 0,
+          employerPf: Number(row.employer_pf) || 0,
+          employerPfArr: Number(row.employer_pf_arr) || 0,
+          employerEsi: Number(row.employer_esi) || 0,
+        }),
+        incrementPercent:
+          row.increment_percent != null && Number.isFinite(Number(row.increment_percent))
+            ? Number(row.increment_percent)
+            : null,
+      }
       : null,
     updatedAt: new Date(row.updated_at).toISOString(),
     ...(row.in_period_register != null ? { inPeriodRegister: row.in_period_register } : {}),
@@ -504,6 +504,17 @@ export async function updateAdminEmployee(
 
   if (input.dateOfLeaving !== undefined && nextDateOfLeaving) {
     await processDueOffboardingForEmployee(id, input.actor);
+  }
+
+  // Reactivated (status Active and no past DOL): turn their login back on.
+  // Offboarding disables the login when someone leaves; nothing re-enabled it before.
+  if (effectiveEmploymentStatus(nextStatus, nextDateOfLeaving) === "active" && nextEmail) {
+    await query(
+      `UPDATE users SET account_disabled = FALSE, updated_at = NOW()
+       WHERE lower(trim(email)) = lower(trim($1)) AND account_disabled = TRUE`,
+      [nextEmail],
+    );
+    await query(`UPDATE employees SET offboarding_notified_at = NULL WHERE id = $1`, [id]);
   }
 
   return getAdminEmployee(id, nextCompany);
