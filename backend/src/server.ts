@@ -1562,6 +1562,23 @@ app.get("/api/employee-documents/file/:id", requireAuth, (req, res) => {
   void handleDownloadDocument(req, res);
 });
 
+// Errors from uploads (e.g. file too large) come back as JSON so the page can show the message.
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === "LIMIT_FILE_SIZE"
+        ? "File is too large. Please use a smaller image (max 10 MB)."
+        : `Upload error: ${err.message}`;
+    res.status(400).json({ message });
+    return;
+  }
+  console.error("[api] request error:", err);
+  res.status(500).json({ message: err instanceof Error ? err.message : "Server error" });
+});
 initDb()
   .then(async () => {
     if (NODE_ENV === "production" && !process.env.AUTH_SECRET?.trim()) {

@@ -18,6 +18,7 @@ import { DEFAULT_UPLOAD_COMPANY } from '../constants/companies'
 import { canUseOfferLetters } from '../auth/permissions'
 import { DOJ_INPUT_PLACEHOLDER, formatDojDdMmYyyy } from '../utils/dojFormat'
 import { notifyEmployeeRegistryUpdated } from '../utils/employeeRegistryEvents'
+import { showToast, toastSuccess } from '../utils/toastBridge'
 
 function todayDdMmYyyy(): string {
   const d = new Date()
@@ -75,6 +76,7 @@ export function RelievingLetterPage() {
   const [email, setEmail] = useState<RelievingLetterEmail>({ to: '', cc: '', subject: '', body: '' })
   const [sending, setSending] = useState(false)
   const [sentMessage, setSentMessage] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!allowed) return
@@ -170,19 +172,37 @@ export function RelievingLetterPage() {
     }
   }
 
+  function failSend(message: string) {
+    setSendError(message)
+    showToast(message, { variant: 'error', durationMs: 6000 })
+  }
+
   async function onSendEmail() {
     setError(null)
+    setSendError(null)
     setSentMessage(null)
     if (!meta?.emailAvailable) {
-      setError('Email is not set up on the server (SMTP). Download the PDF and send it manually.')
+      failSend('Email is not set up on the server (SMTP). Download the PDF and send it manually.')
       return
     }
     if (!email.to.trim()) {
-      setError("Enter the employee's email address.")
+      failSend("Enter the employee's email address.")
+      return
+    }
+    if (!form.employeeName.trim() || !form.employeeCode.trim() || !form.designation.trim()) {
+      failSend('Fill employee name, code and designation first.')
+      return
+    }
+    if (!form.dateOfJoining.trim() || !form.dateOfLeaving.trim()) {
+      failSend('Fill date of joining and date of leaving first.')
       return
     }
     if (!signatureFile && !meta?.hasSavedSignature) {
-      setError('Upload a digital signature image (PNG or JPEG) before sending.')
+      failSend('Upload a digital signature image (PNG or JPEG) before sending.')
+      return
+    }
+    if (signatureFile && signatureFile.size > 10 * 1024 * 1024) {
+      failSend('Signature image is too large (max 10 MB). Please use a smaller image.')
       return
     }
     setSending(true)
@@ -191,16 +211,16 @@ export function RelievingLetterPage() {
         signatureFile,
         rememberSignature: rememberSignature && Boolean(signatureFile),
       })
-      setSentMessage(
-        `Letter sent to ${res.sentTo.join(', ')}${res.cc.length ? ` (cc ${res.cc.join(', ')})` : ''}.`,
-      )
+      const msg = `Letter sent to ${res.sentTo.join(', ')}${res.cc.length ? ` (cc ${res.cc.join(', ')})` : ''}.`
+      setSentMessage(msg)
+      toastSuccess(msg, 5000)
       notifyEmployeeRegistryUpdated()
       setEmployees(await listAdminEmployees(DEFAULT_UPLOAD_COMPANY))
       if (rememberSignature && signatureFile) {
         setMeta((m) => (m ? { ...m, hasSavedSignature: true } : m))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send the letter')
+      failSend(e instanceof Error ? e.message : 'Could not send the letter')
     } finally {
       setSending(false)
     }
@@ -477,8 +497,14 @@ export function RelievingLetterPage() {
                     }
                     onClick={() => void onSendEmail()}
                   >
-                    {sending ? 'Sending…' : 'Send letter by email'}
+                    {sending ? 'Sending… (building PDF and emailing)' : 'Send letter by email'}
                   </button>
+                  {sendError ? <p className="alert-error mt-3 text-sm">{sendError}</p> : null}
+                  {sentMessage ? (
+                    <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                      {sentMessage}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </>
