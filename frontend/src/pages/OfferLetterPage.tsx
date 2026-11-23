@@ -26,17 +26,17 @@ function errorMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback
 }
 
-function rowKey(row: OfferLetterRow, index: number): string {
-  return `${index}-${row.email}-${row.name}`
+function rowKey(_row: OfferLetterRow, index: number): string {
+  return `offer-row-${index}`
 }
 
 function rowComplete(row: OfferLetterRow): boolean {
   return Boolean(
     row.email.trim() &&
-      row.name.trim() &&
-      row.dateOfJoining &&
-      row.position.trim() &&
-      row.salary.trim(),
+    row.name.trim() &&
+    row.dateOfJoining &&
+    row.position.trim() &&
+    row.salary.trim(),
   )
 }
 
