@@ -66,7 +66,8 @@ export async function ollamaChat(messages: OllamaMessage[], tools?: OllamaToolSp
                 keep_alive: process.env.OLLAMA_KEEP_ALIVE?.trim() || "30m",
                 options: {
                     temperature: 0.1,
-                    num_ctx: 8192,
+                    num_ctx: 6144,
+                    num_predict: 450, // keep answers short: writing is ~10 words/s on CPU
                     // match the CPU cap (8 cores): more threads than cores makes it slower
                     num_thread: Number(process.env.CHAT_NUM_THREAD) || 8,
                 },

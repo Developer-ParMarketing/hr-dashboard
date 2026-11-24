@@ -408,10 +408,18 @@ async function getMonthlySummary(ctx: ChatContext, args: ToolArgs) {
                 wfh: kinds.filter((k) => k === "wfh").length,
                 leave: kinds.filter((k) => k === "leave").length,
                 totalWorked: hm(list.reduce((s, r) => s + (Number(r.working_hours) || 0), 0)),
+                hoursNum: list.reduce((s, r) => s + (Number(r.working_hours) || 0), 0),
             };
         });
+    const sortBy = ["late", "absent", "present", "hours_low", "hours_high", "wfh", "leave"].includes(str(args.sort_by))
+        ? str(args.sort_by)
+        : "late";
+    const key = (x: (typeof summaries)[number]): number =>
+        sortBy === "hours_low" ? -x.hoursNum : sortBy === "hours_high" ? x.hoursNum : Number(x[sortBy as "late"]);
+    summaries.sort((a, b) => key(b) - key(a) || a.code.localeCompare(b.code));
     return {
         month,
+        sortBy,
         employee,
         count: summaries.length,
         employees: summaries.slice(0, MAX_ROWS),
@@ -562,127 +570,188 @@ const IMPLS: Record<string, ToolImpl> = {
     get_policy: getPolicy,
 };
 
+/* ---- short tool descriptions: every word here is re-read on each question (slow on CPU) ---- */
+const S = (type: string, description?: string, e?: string[]) => ({ type, ...(description ? { description } : {}), ...(e ? { enum: e } : {}) });
+const tool = (
+    name: string,
+    description: string,
+    properties: Record<string, { type: string; description?: string; enum?: string[] }>,
+    required?: string[],
+): OllamaToolSpec => ({ type: "function", function: { name, description, parameters: { type: "object", properties, ...(required ? { required } : {}) } } });
+
 export const TOOL_SPECS: OllamaToolSpec[] = [
-    {
-        type: "function",
-        function: {
-            name: "find_employees",
-            description:
-                "List or search employees: code, name, team, manager, status, joining/leaving date, shift start, work email. Use to answer who is in a team, who someone's manager is, or to find an employee code.",
-            parameters: {
-                type: "object",
-                properties: {
-                    query: { type: "string", description: "Employee code (e.g. PMPL03) or part of a name. Leave empty to list all." },
-                    team: { type: "string", description: "Team or department name, e.g. Product, Design" },
-                    include_inactive: { type: "boolean", description: "Include people who have left" },
-                },
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_employee_attendance",
-            description:
-                "Day-by-day attendance of ONE employee for a date range: punch-in, punch-out, hours worked, late (minutes), status (present, half_day, absent, wfh, leave, weekly_off) and totals.",
-            parameters: {
-                type: "object",
-                properties: {
-                    employee: { type: "string", description: 'Employee code, name, or "me" for the person asking' },
-                    from: { type: "string", description: "Start date YYYY-MM-DD (default: first day of this month)" },
-                    to: { type: "string", description: "End date YYYY-MM-DD (default: today)" },
-                },
-                required: ["employee"],
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_attendance_on_date",
-            description:
-                "Everyone's attendance on ONE date. Use for questions like who is late today, who is absent, who has not punched in yet, who is on WFH or leave on a date.",
-            parameters: {
-                type: "object",
-                properties: {
-                    date: { type: "string", description: "Date YYYY-MM-DD (default: today)" },
-                    filter: {
-                        type: "string",
-                        enum: ["all", "present", "absent", "late", "wfh", "leave", "half_day", "not_punched_in"],
-                        description: "Which people to return",
-                    },
-                },
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_monthly_summary",
-            description:
-                "Per-employee totals for a month: present days, half days, absent, late count, WFH, leave, total hours. Use for rankings like most late marks or lowest hours.",
-            parameters: {
-                type: "object",
-                properties: {
-                    month: { type: "string", description: "Month YYYY-MM (default: this month)" },
-                    employee: { type: "string", description: "Optional: only this employee (code or name)" },
-                },
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_leave_requests",
-            description: "Leave requests (PL, SL, CL) with dates, status and reason.",
-            parameters: {
-                type: "object",
-                properties: {
-                    employee: { type: "string", description: "Optional employee code or name" },
-                    from: { type: "string", description: "YYYY-MM-DD (default: 30 days ago)" },
-                    to: { type: "string", description: "YYYY-MM-DD (default: 60 days ahead)" },
-                    status: { type: "string", enum: ["pending", "approved", "rejected", "cancelled"] },
-                },
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_pending_approvals",
-            description: "Leave requests and in/out (WFH punch) requests waiting for approval.",
-            parameters: { type: "object", properties: {} },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_holidays",
-            description: "Company holiday list for a year (date, name, full or half day).",
-            parameters: {
-                type: "object",
-                properties: { year: { type: "string", description: "Year, e.g. 2026 (default: this year)" } },
-            },
-        },
-    },
-    {
-        type: "function",
-        function: {
-            name: "get_policy",
-            description:
-                "Company and attendance policy text (late marks, half day, leave, WFH, conduct, confidentiality, IT, benefits).",
-            parameters: {
-                type: "object",
-                properties: { topic: { type: "string", description: "Optional keyword, e.g. late, leave, wfh, half day" } },
-            },
-        },
-    },
+    tool("find_employees", "Search employees (code, name, team, manager, shift).", {
+        query: S("string", "code or name"),
+        team: S("string"),
+    }),
+    tool(
+        "get_employee_attendance",
+        "One employee's daily attendance for a date range (punch in/out, hours, late).",
+        { employee: S("string", 'code, name or "me"'), from: S("string", "YYYY-MM-DD"), to: S("string", "YYYY-MM-DD") },
+        ["employee"],
+    ),
+    tool("get_attendance_on_date", "Everyone's attendance on one date (who is late/absent/not punched in/WFH/leave).", {
+        date: S("string", "YYYY-MM-DD"),
+        filter: S("string", undefined, ["all", "present", "absent", "late", "wfh", "leave", "half_day", "not_punched_in"]),
+    }),
+    tool("get_monthly_summary", "Monthly totals per employee: present, absent, late count, WFH, leave, hours. Use sort_by for rankings.", {
+        month: S("string", "YYYY-MM"),
+        employee: S("string", "optional code or name"),
+        sort_by: S("string", "most first", ["late", "absent", "present", "hours_low", "hours_high", "wfh", "leave"]),
+    }),
+    tool("get_leave_requests", "Leave requests with dates and status.", {
+        employee: S("string"),
+        from: S("string"),
+        to: S("string"),
+        status: S("string", undefined, ["pending", "approved", "rejected"]),
+    }),
+    tool("get_pending_approvals", "Leave and in/out requests waiting for approval.", {}),
+    tool("get_holidays", "Company holiday list.", { year: S("string") }),
+    tool("get_policy", "Company / attendance policy text.", { topic: S("string", "e.g. late, leave, wfh") }),
 ];
 
-/** Run one tool call safely. Always returns a JSON string for the model. */
-export async function runTool(ctx: ChatContext, name: string, rawArgs: unknown): Promise<string> {
+/* ---------------- ready-made answers (no second AI round = much faster) ---------------- */
+
+type Obj = Record<string, unknown>;
+const KIND: Record<string, string> = {
+    present: "Present",
+    half_day: "Half day",
+    absent: "Absent",
+    wfh: "WFH",
+    leave: "Leave",
+    weekly_off: "Weekly off",
+    not_punched_in_yet: "Not punched in yet",
+    no_record: "No record",
+    other: "-",
+};
+const FILTER_LABEL: Record<string, string> = {
+    all: "",
+    present: "present",
+    absent: "absent",
+    late: "late",
+    wfh: "on WFH",
+    leave: "on leave",
+    half_day: "on half day",
+    not_punched_in: "not punched in",
+};
+const cell = (v: unknown) => (v == null || v === "" ? "-" : String(v).replace(/\|/g, "/"));
+function table(head: string[], rows: unknown[][]): string {
+    return [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`)].join("\n");
+}
+function niceDate(iso: string): string {
+    return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
+}
+
+function errorDisplay(r: Obj): string {
+    const msg = String(r.error).replace(/\s*(Tell the user politely\.|Do not guess a name\.|Ask which one\.)\s*$/, "");
+    const c = r.candidates as Array<{ code: string; name: string }> | undefined;
+    return c?.length ? `${msg}\n\n${c.map((x) => `- ${x.code} - ${x.name}`).join("\n")}\n\nWhich one do you mean?` : msg;
+}
+
+/** Markdown answer straight from the data, or null when the AI should summarise. */
+function displayFor(name: string, r: Obj): string | null {
+    if (r.error) return errorDisplay(r);
+    switch (name) {
+        case "find_employees": {
+            const list = r.employees as Obj[];
+            if (!list.length) return "No matching employee found.";
+            return `**${list.length} employee${list.length === 1 ? "" : "s"}**\n\n` +
+                table(["Code", "Name", "Team", "Manager", "Shift start"], list.map((e) => [e.code, e.name, e.team, e.manager, e.shiftStartsAt]));
+        }
+        case "get_employee_attendance": {
+            const e = r.employee as Obj;
+            const sm = r.summary as Obj;
+            const days = r.days as Obj[];
+            const head = `**${e.name} (${e.code})** - ${niceDate(String(r.from))} to ${niceDate(String(r.to))}`;
+            if (!days.length) return `${head}\n\nNo attendance saved for this period.`;
+            const line = `Present **${sm.present}**${Number(sm.halfDays) ? ` (half days ${sm.halfDays})` : ""} · Absent **${sm.absent}** · Late **${sm.late}** · WFH **${sm.wfh}** · Leave **${sm.leave}** · Worked **${sm.totalWorked ?? "0:00"}**`;
+            return `${head}\n\n${line}\n\n` + table(
+                ["Date", "Status", "In", "Out", "Worked", "Late"],
+                days.map((d) => [niceDate(String(d.date)), KIND[String(d.status)] ?? d.mark, d.punchIn, d.punchOut, d.worked, d.late ? `${d.lateMinutes ?? ""} min` : ""]),
+            );
+        }
+        case "get_attendance_on_date": {
+            const list = r.employees as Obj[];
+            const what = FILTER_LABEL[String(r.filter)] ?? "";
+            const when = `${r.isToday ? "today, " : ""}${niceDate(String(r.date))}`;
+            if (!list.length) return `Nobody ${what || "found"} on ${when}.${r.note ? `\n\n_${r.note}_` : ""}`;
+            return `**${list.length} of ${r.totalEmployees}** ${what ? `${what} ` : "employees "}on ${when}\n\n` +
+                table(["Code", "Name", "Status", "In", "Out", "Late"], list.map((x) => [x.code, x.name, KIND[String(x.status)] ?? x.status, x.punchIn, x.punchOut, x.late ? `${x.lateMinutes ?? ""} min` : ""])) +
+                (r.note ? `\n\n_${r.note}_` : "");
+        }
+        case "get_monthly_summary": {
+            const e = r.employee as Obj | undefined;
+            const list = r.employees as Obj[];
+            if (!e) {
+                if (!list.length) return `No attendance saved for ${r.month}.`;
+                const label: Record<string, string> = {
+                    late: "most late marks first",
+                    absent: "most absent days first",
+                    present: "most present days first",
+                    hours_low: "lowest hours first",
+                    hours_high: "highest hours first",
+                    wfh: "most WFH days first",
+                    leave: "most leave days first",
+                };
+                const top = list[0]!;
+                const topLine =
+                    r.sortBy === "late"
+                        ? `Most late marks: **${top.name} (${top.code}) - ${top.late}**`
+                        : r.sortBy === "absent"
+                            ? `Most absent: **${top.name} (${top.code}) - ${top.absent} days**`
+                            : r.sortBy === "hours_low"
+                                ? `Lowest hours: **${top.name} (${top.code}) - ${top.totalWorked ?? "0:00"}**`
+                                : r.sortBy === "hours_high"
+                                    ? `Highest hours: **${top.name} (${top.code}) - ${top.totalWorked ?? "0:00"}**`
+                                    : `Top: **${top.name} (${top.code})**`;
+                return `**${r.month}** - ${label[String(r.sortBy)] ?? ""}\n\n${topLine}\n\n` +
+                    table(
+                        ["Code", "Name", "Present", "Absent", "Late", "WFH", "Leave", "Worked"],
+                        list.slice(0, 30).map((x) => [x.code, x.name, x.present, x.absent, x.late, x.wfh, x.leave, x.totalWorked]),
+                    );
+            }
+            const x = list[0];
+            if (!x) return `**${e.name} (${e.code})** - no attendance saved for ${r.month}.`;
+            return `**${x.name} (${x.code})** - ${r.month}\n\nPresent **${x.present}**${Number(x.halfDays) ? ` (half days ${x.halfDays})` : ""} · Absent **${x.absent}** · Late marks **${x.late}** · WFH **${x.wfh}** · Leave **${x.leave}** · Worked **${x.totalWorked ?? "0:00"}**`;
+        }
+        case "get_leave_requests": {
+            const list = r.leaves as Obj[];
+            if (!list.length) return `No leave requests between ${niceDate(String(r.from))} and ${niceDate(String(r.to))}.`;
+            return `**${list.length} leave request${list.length === 1 ? "" : "s"}**\n\n` +
+                table(["Code", "Name", "Type", "From", "To", "Days", "Status"], list.map((l) => [l.code, l.name, l.type, l.from, l.to, l.days, l.status]));
+        }
+        case "get_pending_approvals": {
+            const lv = r.pendingLeaveRequests as Obj[];
+            const io = r.pendingInOutRequests as Obj[];
+            if (!lv.length && !io.length) return "Nothing is waiting for approval.";
+            const parts: string[] = [];
+            if (lv.length) parts.push(`**Pending leave (${lv.length})**\n\n` + table(["Code", "Name", "Type", "From", "To"], lv.map((l) => [l.code, l.name, l.type, l.from, l.to])));
+            if (io.length) parts.push(`**Pending in/out (${io.length})**\n\n` + table(["Code", "Name", "Date", "In", "Out"], io.map((l) => [l.code, l.name, l.date, l.in, l.out])));
+            return parts.join("\n\n");
+        }
+        case "get_holidays": {
+            const list = r.holidays as Obj[];
+            if (!list.length) return `No holidays saved for ${r.year}.`;
+            const next = list.find((h) => h.upcoming);
+            return `**Holidays ${r.year}**${next ? ` - next: **${next.name}** on ${niceDate(String(next.date))}` : ""}\n\n` +
+                table(["Date", "Holiday", "Type"], list.map((h) => [niceDate(String(h.date)), h.name, h.type]));
+        }
+        default:
+            return null; // get_policy: the AI summarises
+    }
+}
+
+/** Drop empty fields so the AI has less to read. */
+function compactJson(v: unknown): string {
+    return JSON.stringify(v, (_k, val) => (val === null || val === undefined || val === false || val === "" ? undefined : val));
+}
+
+export type ToolRun = { json: string; display: string | null };
+
+/** Run one tool call safely. `json` goes back to the AI; `display` (if any) can be shown to the user directly. */
+export async function runTool(ctx: ChatContext, name: string, rawArgs: unknown): Promise<ToolRun> {
     const impl = IMPLS[name];
-    if (!impl) return JSON.stringify({ error: `Unknown tool ${name}` });
+    if (!impl) return { json: JSON.stringify({ error: `Unknown tool ${name}` }), display: null };
     let args: ToolArgs = {};
     if (typeof rawArgs === "string") {
         try {
@@ -694,15 +763,19 @@ export async function runTool(ctx: ChatContext, name: string, rawArgs: unknown):
         args = rawArgs as ToolArgs;
     }
     try {
-        const result = await impl(ctx, args);
-        let json = JSON.stringify(result);
-        if (json.length > 24_000) {
-            json = json.slice(0, 24_000) + '..."(truncated: ask a narrower question)"';
+        const result = (await impl(ctx, args)) as Obj;
+        let json = compactJson(result);
+        if (json.length > 12_000) json = json.slice(0, 12_000) + '..."(truncated)"';
+        let display: string | null = null;
+        try {
+            display = displayFor(name, result);
+        } catch (e) {
+            console.error(`[chat] display for ${name} failed:`, e);
         }
-        return json;
+        return { json, display };
     } catch (e) {
         console.error(`[chat] tool ${name} failed:`, e);
-        return JSON.stringify({ error: "Could not read that data right now." });
+        return { json: JSON.stringify({ error: "Could not read that data right now." }), display: "Sorry, I couldn't read that data right now." };
     }
 }
 

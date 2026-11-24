@@ -12,8 +12,10 @@ export type ChatResult = {
 };
 
 const MAX_TOOL_ROUNDS = 5;
-const MAX_HISTORY = 10;
-const MAX_MESSAGE_CHARS = 2000;
+const MAX_HISTORY = 6;
+const MAX_MESSAGE_CHARS = 1000;
+/** Old answers are cut short in the history: tables cost a lot to re-read on CPU. */
+const MAX_OLD_ANSWER_CHARS = 300;
 
 let logTableReady: Promise<void> | null = null;
 
@@ -120,7 +122,7 @@ function contextMessage(ctx: ChatContext, roster: string, self: { code: string; 
     const lastMonthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
     const lastMonthEnd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0));
     return [
-        `CONTEXT - Today is ${todayLabel} (${ctx.today}), India time.`,
+        `CONTEXT (background info, not a question) - Today is ${todayLabel} (${ctx.today}), India time.`,
         `Dates: yesterday=${iso(shift(-1))}; this week=${iso(weekStart)} to ${ctx.today}; last week=${iso(lastWeekStart)} to ${iso(lastWeekEnd)}; this month=${iso(monthStart)} to ${ctx.today} (month ${ctx.today.slice(0, 7)}); last month=${iso(lastMonthStart)} to ${iso(lastMonthEnd)} (month ${iso(lastMonthStart).slice(0, 7)}).`,
         `You are talking to ${who}. When they say me / my / I / mera, use "me" as the employee.`,
         scope,
@@ -142,7 +144,12 @@ function cleanHistory(history: ChatTurn[]): ChatTurn[] {
         .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
         .map((m) => ({ role: m.role, content: m.content.trim().slice(0, MAX_MESSAGE_CHARS) }))
         .filter((m) => m.content.length > 0)
-        .slice(-MAX_HISTORY);
+        .slice(-MAX_HISTORY)
+        .map((m) =>
+            m.role === "assistant" && m.content.length > MAX_OLD_ANSWER_CHARS
+                ? { ...m, content: m.content.slice(0, MAX_OLD_ANSWER_CHARS) + " ..." }
+                : m,
+        );
 }
 
 /** Ask the assistant. `history` is the conversation so far; the last item must be the user's question. */
@@ -166,9 +173,11 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                     )
                 )[0] ?? null
                 : null;
+        // Order matters for speed: [fixed instructions + tool list] is the same for everyone, so Ollama
+        // keeps it cached. The per-user context goes into the first user message, after that block.
         const messages: OllamaMessage[] = [
             { role: "system", content: STATIC_SYSTEM },
-            { role: "system", content: contextMessage(ctx, roster, selfRow) },
+            { role: "user", content: contextMessage(ctx, roster, selfRow) },
             ...turns.map((t) => ({ role: t.role, content: t.content }) as OllamaMessage),
         ];
 
@@ -181,11 +190,18 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                 break;
             }
             messages.push({ role: "assistant", content: reply.content ?? "", tool_calls: calls });
-            for (const call of calls.slice(0, 4)) {
+            const runs = [];
+            for (const call of calls.slice(0, 3)) {
                 const name = call.function?.name ?? "";
                 toolsUsed.push(name);
-                const result = await runTool(ctx, name, call.function?.arguments);
-                messages.push({ role: "tool", tool_name: name, content: result });
+                const run = await runTool(ctx, name, call.function?.arguments);
+                runs.push(run);
+                messages.push({ role: "tool", tool_name: name, content: run.json });
+            }
+            // Fast path: the data already answers the question as a ready-made table -> no second AI round.
+            if (runs.length > 0 && runs.every((r) => r.display)) {
+                answer = runs.map((r) => r.display).join("\n\n");
+                break;
             }
         }
         // Safety net: the answer mentions an employee code that doesn't exist -> ask once more.
@@ -202,7 +218,7 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                 for (const call of retry.tool_calls.slice(0, 4)) {
                     const name = call.function?.name ?? "";
                     toolsUsed.push(name);
-                    messages.push({ role: "tool", tool_name: name, content: await runTool(ctx, name, call.function?.arguments) });
+                    messages.push({ role: "tool", tool_name: name, content: (await runTool(ctx, name, call.function?.arguments)).json });
                 }
                 answer = ((await ollamaChat(messages)).content ?? "").trim();
             } else {
