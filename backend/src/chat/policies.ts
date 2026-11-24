@@ -215,22 +215,35 @@ export function policySections(topic?: string): PolicyMatch {
     const terms = new Set<string>()
     for (const [k, v] of Object.entries(SYNONYMS)) if (raw.includes(k)) v.forEach((x) => terms.add(x))
     words.forEach((w) => terms.add(w))
-    const out: string[] = []
-    let titleMatch = false
-    for (const doc of ALL_POLICIES) {
-        for (const s of doc.sections) {
-            if (terms.size === 0) continue
-            const titleHay = s.title.toLowerCase()
-            const lines = [s.summary, ...s.rules]
-            const hitTitle = [...terms].some((t) => titleHay.includes(t))
-            const hitLines = lines.filter((l) => [...terms].some((t) => l.toLowerCase().includes(t)))
-            if (!hitTitle && hitLines.length === 0) continue
-            if (hitTitle) titleMatch = true
-            const shown = hitTitle ? s.rules : hitLines.filter((l) => l !== s.summary)
-            out.push(`**${s.title}** (${doc.title})`, ...(hitTitle ? [s.summary] : []), ...shown.map((r) => `- ${r}`))
-            if (hitTitle && s.note) out.push(`_Note: ${s.note}_`)
-            out.push('')
+    // Whole words only: "late" must not match "violate" or "latest". Allows plurals ("leave" -> "leaves").
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]+')
+    const patterns = [...terms].map((t) => new RegExp(`\\b${esc(t)}(s|es)?\\b`, 'i'))
+    const hits = (text: string) => patterns.some((re) => re.test(text))
+
+    type Hit = { doc: PolicyDocument; section: PolicySection; byTitle: boolean; lines: string[] }
+    const found: Hit[] = []
+    if (patterns.length > 0) {
+        for (const doc of ALL_POLICIES) {
+            for (const section of doc.sections) {
+                const byTitle = hits(section.title)
+                const lines = [section.summary, ...section.rules].filter(hits)
+                if (byTitle || lines.length > 0) found.push({ doc, section, byTitle, lines })
+            }
         }
+    }
+    // A section that is ABOUT the topic wins; only fall back to single matching lines when none is.
+    const titleMatch = found.some((h) => h.byTitle)
+    const chosen = titleMatch ? found.filter((h) => h.byTitle) : found
+    const out: string[] = []
+    for (const h of chosen) {
+        const s = h.section
+        if (h.byTitle) {
+            out.push(`**${s.title}** (${h.doc.title})`, s.summary, ...s.rules.map((r) => `- ${r}`))
+            if (s.note) out.push(`_Note: ${s.note}_`)
+        } else {
+            out.push(`**${s.title}** (${h.doc.title})`, ...h.lines.filter((l) => l !== s.summary).map((r) => `- ${r}`))
+        }
+        out.push('')
     }
     return { found: out.length > 0, markdown: out.join('\n').trim(), allTitles, titleMatch }
 }
