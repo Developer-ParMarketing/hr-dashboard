@@ -6,6 +6,7 @@ import type { ModuleId } from '../modules/types'
 import { ModuleNav } from './ModuleNav'
 import { PageWayfinding } from './PageWayfinding'
 import { DashboardNotificationsBell } from './dashboard/DashboardNotificationsBell'
+import { ChatWidget } from './ChatWidget'
 
 export type AppShellWayfinding = {
   title: string
@@ -121,6 +122,7 @@ export function AppShell({ active, children, maxWidth = '6xl', wayfinding }: App
 
         <div className={`app-content ${maxClass}`}>{children}</div>
       </div>
+      <ChatWidget user={user} />
     </div>
   )
 }

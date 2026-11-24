@@ -40,6 +40,7 @@ import {
 import { startNotificationScheduler, startOffboardingScheduler } from "./notify/schedule.js";
 import { startEsslSyncScheduler } from "./essl/schedule.js";
 import { handleEsslStatus, handleEsslSync } from "./essl/routes.js";
+import { handleChat, handleChatStatus } from "./chat/routes.js";
 import { buildSavedMonthGrid, persistLeaveWfhChanges } from "./persist/applyLeaveWfh.js";
 import { authSecret, requireAuth, requireAdmin, requireEditor, type AuthedRequest } from "./auth/middleware.js";
 import { requireHolidayManager } from "./holidays/guard.js";
@@ -507,6 +508,13 @@ app.post("/api/attendance/essl/sync", requireEditor, (req, res) => {
   void handleEsslSync(req, res);
 });
 
+// HR assistant chatbot (local Ollama AI, read-only data tools)
+app.get("/api/chat/status", requireAuth, (req, res) => {
+  void handleChatStatus(req, res);
+});
+app.post("/api/chat", requireAuth, (req, res) => {
+  void handleChat(req, res);
+});
 app.post(
   "/api/attendance/process",
   requireEditor,
@@ -1579,6 +1587,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
   console.error("[api] request error:", err);
   res.status(500).json({ message: err instanceof Error ? err.message : "Server error" });
 });
+
 initDb()
   .then(async () => {
     if (NODE_ENV === "production" && !process.env.AUTH_SECRET?.trim()) {
