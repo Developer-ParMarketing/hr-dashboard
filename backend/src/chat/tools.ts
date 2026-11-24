@@ -674,10 +674,18 @@ function displayFor(name: string, r: Obj): string | null {
             const list = r.employees as Obj[];
             const what = FILTER_LABEL[String(r.filter)] ?? "";
             const when = `${r.isToday ? "today, " : ""}${niceDate(String(r.date))}`;
-            if (!list.length) return `Nobody ${what || "found"} on ${when}.${r.note ? `\n\n_${r.note}_` : ""}`;
-            return `**${list.length} of ${r.totalEmployees}** ${what ? `${what} ` : "employees "}on ${when}\n\n` +
-                table(["Code", "Name", "Status", "In", "Out", "Late"], list.map((x) => [x.code, x.name, KIND[String(x.status)] ?? x.status, x.punchIn, x.punchOut, x.late ? `${x.lateMinutes ?? ""} min` : ""])) +
-                (r.note ? `\n\n_${r.note}_` : "");
+            const note = r.note ? `\n\nNote: ${r.note}` : "";
+            if (!list.length) return `Nobody ${what || "found"} on ${when}.${note}`;
+            // earliest punch-in first; people without a punch at the end
+            const rows = [...list].sort((a, b) => String(a.punchIn ?? "99:99").localeCompare(String(b.punchIn ?? "99:99")));
+            const punched = list.filter((x) => x.punchIn).length;
+            const head =
+                r.filter === "all"
+                    ? `**Punch-in ${when}** - ${punched} of ${r.totalEmployees} punched in`
+                    : `**${list.length} of ${r.totalEmployees}** ${what} on ${when}`;
+            return `${head}\n\n` +
+                table(["Code", "Name", "Status", "In", "Out", "Late"], rows.map((x) => [x.code, x.name, KIND[String(x.status)] ?? x.status, x.punchIn, x.punchOut, x.late ? `${x.lateMinutes ?? ""} min` : ""])) +
+                note;
         }
         case "get_monthly_summary": {
             const e = r.employee as Obj | undefined;

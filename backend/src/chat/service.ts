@@ -138,6 +138,7 @@ const ROUTER_SYSTEM = [
     "examples:",
     "who is late today -> {\"tool\":\"get_attendance_on_date\",\"period\":\"today\",\"filter\":\"late\"}",
     "who hasn't punched in -> {\"tool\":\"get_attendance_on_date\",\"period\":\"today\",\"filter\":\"not_punched_in\"}",
+    "today punch in time of everyone / sabka punch in -> {\"tool\":\"get_attendance_on_date\",\"period\":\"today\",\"filter\":\"all\"}",
     "ganesh attendance this month -> {\"tool\":\"get_employee_attendance\",\"employee\":\"ganesh\",\"period\":\"this_month\"}",
     "his attendance last week (after talking about PMPL28) -> {\"tool\":\"get_employee_attendance\",\"employee\":\"PMPL28\",\"period\":\"last_week\"}",
     "how many late marks do I have -> {\"tool\":\"get_monthly_summary\",\"employee\":\"me\",\"period\":\"this_month\"}",
@@ -211,7 +212,7 @@ function contextMessage(ctx: ChatContext, roster: string, self: { code: string; 
 const isIso = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 /** Turn the router's JSON into real tool arguments (dates are worked out here, not by the AI). */
-function toolArgs(route: Record<string, unknown>, today: string): { name: string; args: Record<string, unknown> } {
+function toolArgs(route: Record<string, unknown>, today: string, question = ""): { name: string; args: Record<string, unknown> } {
     const name = String(route.tool);
     const r = dateRanges(today);
     const period = String(route.period ?? "");
@@ -241,7 +242,16 @@ function toolArgs(route: Record<string, unknown>, today: string): { name: string
         }
         case "get_attendance_on_date": {
             const date = period === "yesterday" ? r.yesterday : custom && isIso(route.from) ? route.from : r.today;
-            return { name, args: { date, filter: str(route.filter) ?? "all" } };
+            let filter = str(route.filter) ?? "all";
+            // Safety: only list "not punched in" when the question actually says so.
+            if (filter === "not_punched_in" && !/\b(not|n't|nahi|nahin|nhi|missing|without|abhi tak|absent|yet)\b|n't/i.test(question)) {
+                filter = "all";
+            }
+            // "everyone / all / sab" means the full list, whatever filter the router picked
+            if (/\b(all|everyone|everybody|sab|sabka|sabhi|full list)\b/i.test(question) && !/\b(late|absent|wfh|leave|half)\b/i.test(question) && !/\b(not|nahi|n't)\b|n't/i.test(question)) {
+                filter = "all";
+            }
+            return { name, args: { date, filter } };
         }
         case "get_monthly_summary": {
             const [from] = range();
@@ -334,7 +344,7 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         let answer = "";
         if (route.tool !== "none") {
             // 2) Real data, shown as a ready-made table.
-            const { name, args } = toolArgs(route, ctx.today);
+            const { name, args } = toolArgs(route, ctx.today, last.content);
             toolsUsed.push(name);
             const run = await runTool(ctx, name, args);
             answer = run.display ?? NOT_SURE;

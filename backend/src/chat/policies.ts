@@ -239,7 +239,7 @@ export function policySections(topic?: string): PolicyMatch {
         const s = h.section
         if (h.byTitle) {
             out.push(`**${s.title}** (${h.doc.title})`, s.summary, ...s.rules.map((r) => `- ${r}`))
-            if (s.note) out.push(`_Note: ${s.note}_`)
+            if (s.note) out.push(`Note: ${s.note}`)
         } else {
             out.push(`**${s.title}** (${h.doc.title})`, ...h.lines.filter((l) => l !== s.summary).map((r) => `- ${r}`))
         }
