@@ -49,8 +49,16 @@ function timeoutMs(): number {
     return Number.isFinite(n) && n > 0 ? n : 120_000;
 }
 
-/** One chat round. Returns the assistant message (may contain tool_calls). */
-export async function ollamaChat(messages: OllamaMessage[], tools?: OllamaToolSpec[]): Promise<OllamaMessage> {
+/**
+ * One chat round. Returns the assistant message (may contain tool_calls).
+ * `format`: a JSON schema - the model is FORCED to reply with JSON matching it (Ollama structured output).
+ */
+export async function ollamaChat(
+    messages: OllamaMessage[],
+    tools?: OllamaToolSpec[],
+    format?: Record<string, unknown>,
+    maxTokens = 450,
+): Promise<OllamaMessage> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs());
     try {
@@ -63,11 +71,12 @@ export async function ollamaChat(messages: OllamaMessage[], tools?: OllamaToolSp
                 stream: false,
                 messages,
                 tools: tools && tools.length ? tools : undefined,
+                format: format ?? undefined,
                 keep_alive: process.env.OLLAMA_KEEP_ALIVE?.trim() || "30m",
                 options: {
                     temperature: 0.1,
                     num_ctx: 6144,
-                    num_predict: 450, // keep answers short: writing is ~10 words/s on CPU
+                    num_predict: maxTokens, // keep answers short: writing is ~10 words/s on CPU
                     // match the CPU cap (8 cores): more threads than cores makes it slower
                     num_thread: Number(process.env.CHAT_NUM_THREAD) || 8,
                 },

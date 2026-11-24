@@ -1,7 +1,7 @@
 import { query } from "../db/index.js";
 import type { AuthUser } from "../auth/users.js";
 import { ollamaChat, ollamaModel, type OllamaMessage } from "./ollama.js";
-import { TOOL_SPECS, buildChatContext, employeeRoster, runTool, type ChatContext } from "./tools.js";
+import { buildChatContext, employeeRoster, runTool, type ChatContext } from "./tools.js";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -11,7 +11,6 @@ export type ChatResult = {
     durationMs: number;
 };
 
-const MAX_TOOL_ROUNDS = 5;
 const MAX_HISTORY = 6;
 const MAX_MESSAGE_CHARS = 1000;
 /** Old answers are cut short in the history: tables cost a lot to re-read on CPU. */
@@ -71,28 +70,127 @@ async function logChat(row: {
     }
 }
 
-/**
- * Fixed instructions - identical for every question, so Ollama can reuse them
- * from its cache instead of re-reading them each time (much faster on CPU).
- */
-const STATIC_SYSTEM = [
-    "You are Par HR Assistant, the HR chatbot of Par Marketing Private Limited (a marketing agency; email domain parmarketing.agency).",
+/* ------------------------------------------------------------------------------------------
+ * How a question is answered (accuracy first):
+ *  1. ROUTER: the AI must reply with JSON naming ONE lookup (forced by Ollama "format").
+ *     It never writes attendance numbers itself.
+ *  2. The backend runs that lookup and shows the real data as a ready-made table.
+ *  3. Only small talk ("hi", "what is my name") gets a free-text AI reply - and that reply
+ *     is blocked if it contains times or tables (= made-up data).
+ * ------------------------------------------------------------------------------------------ */
+
+const TOOL_NAMES = [
+    "get_employee_attendance",
+    "get_attendance_on_date",
+    "get_monthly_summary",
+    "find_employees",
+    "get_leave_requests",
+    "get_pending_approvals",
+    "get_holidays",
+    "get_policy",
+    "none",
+] as const;
+
+const PERIODS = ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "custom"] as const;
+
+const ROUTER_SCHEMA: Record<string, unknown> = {
+    type: "object",
+    properties: {
+        tool: { type: "string", enum: [...TOOL_NAMES] },
+        employee: { type: "string" },
+        period: { type: "string", enum: [...PERIODS] },
+        from: { type: "string" },
+        to: { type: "string" },
+        filter: {
+            type: "string",
+            enum: ["all", "present", "absent", "late", "wfh", "leave", "half_day", "not_punched_in"],
+        },
+        sort_by: { type: "string", enum: ["late", "absent", "present", "hours_low", "hours_high", "wfh", "leave"] },
+        query: { type: "string" },
+        team: { type: "string" },
+        topic: { type: "string" },
+        status: { type: "string", enum: ["pending", "approved", "rejected", "any"] },
+        year: { type: "string" },
+    },
+    required: ["tool"],
+};
+
+/** Fixed router instructions - identical for everyone, so Ollama keeps them cached. */
+const ROUTER_SYSTEM = [
+    "You are the router of an HR chatbot for Par Marketing. Read the conversation and pick ONE lookup for the LAST user message.",
+    "Reply ONLY with JSON. Never answer the question yourself.",
     "",
-    "Rules:",
-    "- Facts about attendance, punch times, late marks, leaves, holidays and policy MUST come from the tools. Call a tool for every such question, including follow-up questions. Never answer these from memory.",
-    "- Employee names and codes MUST come from the EMPLOYEE LIST in the context message or from tool results. Never invent a person, a code, a surname, a job role or a time. If someone is not in the list, say so.",
-    "- If several people match a name (for example two people called Ganesh), list them and ask which one.",
-    "- If a tool returns an error (for example access denied), explain it politely in one sentence. Do not ask the user for their own code: use \"me\".",
-    "- shiftStartsAt is the usual shift start time, not a joining date. Do not mention fields that are empty.",
-    "- Convert relative dates (today, yesterday, this week = Monday to today, this month, last month) to YYYY-MM-DD using today's date from the context message.",
-    "- Times are 24-hour HH:MM. Worked hours are H:MM. half_day = present but worked under 5 hours.",
-    "- Reply in the user's language (English, Hindi or Hinglish). Be brief. Use a small table when listing several people or days.",
-    "- Never show salary or passwords. Only help with HR, attendance, leave, holidays and company policy.",
+    "tools:",
+    "- get_employee_attendance: one person's days (punch in/out, hours, late). needs employee + period.",
+    "- get_attendance_on_date: everyone on one day. period today/yesterday (or custom with from=YYYY-MM-DD) + filter (late, absent, not_punched_in, wfh, leave, half_day, present, all).",
+    "- get_monthly_summary: month totals. With employee = that person's late marks/absent/present count. Without employee = ranking, use sort_by. period this_month/last_month.",
+    "- find_employees: who is someone, how many people named X, team members, someone's manager. query = name/code, team = team name.",
+    "- get_leave_requests: leaves (employee optional, status).",
+    "- get_pending_approvals: requests waiting for approval.",
+    "- get_holidays: holidays (year optional).",
+    "- get_policy: any policy / rule question. topic = short keyword (late, leave, wfh, half day, posh, laptop, conduct...).",
+    "- none: greetings, thanks, 'what is my name', company name, or anything not about HR data.",
+    "",
+    "employee: a code (PMPL03), a name, or \"me\" when the user means themselves (I, my, me, mera, mujhe).",
+    "For 'he/his/her/uska/iska', use the person from the previous messages (prefer their code).",
+    "period: today, yesterday, this_week, last_week, this_month, last_month, or custom (then give from/to as YYYY-MM-DD).",
+    "",
+    "examples:",
+    "who is late today -> {\"tool\":\"get_attendance_on_date\",\"period\":\"today\",\"filter\":\"late\"}",
+    "who hasn't punched in -> {\"tool\":\"get_attendance_on_date\",\"period\":\"today\",\"filter\":\"not_punched_in\"}",
+    "ganesh attendance this month -> {\"tool\":\"get_employee_attendance\",\"employee\":\"ganesh\",\"period\":\"this_month\"}",
+    "his attendance last week (after talking about PMPL28) -> {\"tool\":\"get_employee_attendance\",\"employee\":\"PMPL28\",\"period\":\"last_week\"}",
+    "how many late marks do I have -> {\"tool\":\"get_monthly_summary\",\"employee\":\"me\",\"period\":\"this_month\"}",
+    "most late marks this month -> {\"tool\":\"get_monthly_summary\",\"period\":\"this_month\",\"sort_by\":\"late\"}",
+    "how many ganesh are there -> {\"tool\":\"find_employees\",\"query\":\"ganesh\"}",
+    "what is the posh policy -> {\"tool\":\"get_policy\",\"topic\":\"posh\"}",
+    "hi -> {\"tool\":\"none\"}",
 ].join("\n");
 
+/** Fixed instructions for small talk (no data). */
+const CHAT_SYSTEM = [
+    "You are Par HR Assistant, the friendly HR chatbot of Par Marketing Private Limited (a marketing agency; email domain parmarketing.agency).",
+    "This reply is small talk only. You have NO attendance, leave or policy data in this step.",
+    "Never write punch times, hours, dates, counts, tables or policy rules. Never invent people.",
+    "If the user wants data, ask them to name the person and period, e.g. 'Ganesh Sardar attendance this month'.",
+    "You can say what you can help with: attendance, punch times, late marks, leaves, holidays, company policy.",
+    "Reply in the user's language (English, Hindi or Hinglish), in 1-3 short sentences.",
+].join("\n");
+
+type Ranges = {
+    today: string;
+    yesterday: string;
+    weekStart: string;
+    lastWeekStart: string;
+    lastWeekEnd: string;
+    monthStart: string;
+    lastMonthStart: string;
+    lastMonthEnd: string;
+};
+
+function dateRanges(today: string): Ranges {
+    const d = new Date(`${today}T00:00:00Z`);
+    const iso = (x: Date) => x.toISOString().slice(0, 10);
+    const shift = (days: number) => {
+        const x = new Date(d);
+        x.setUTCDate(x.getUTCDate() + days);
+        return iso(x);
+    };
+    const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
+    return {
+        today,
+        yesterday: shift(-1),
+        weekStart: shift(-dow),
+        lastWeekStart: shift(-dow - 7),
+        lastWeekEnd: shift(-dow - 1),
+        monthStart: iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))),
+        lastMonthStart: iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1))),
+        lastMonthEnd: iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0))),
+    };
+}
+
 function contextMessage(ctx: ChatContext, roster: string, self: { code: string; name: string } | null): string {
-    const d = new Date(`${ctx.today}T00:00:00Z`);
-    const todayLabel = d.toLocaleDateString("en-GB", {
+    const todayLabel = new Date(`${ctx.today}T00:00:00Z`).toLocaleDateString("en-GB", {
         weekday: "long",
         day: "numeric",
         month: "long",
@@ -100,36 +198,75 @@ function contextMessage(ctx: ChatContext, roster: string, self: { code: string; 
         timeZone: "UTC",
     });
     const who = self
-        ? `${self.name} (employee code ${self.code}, login ${ctx.user.email}, role ${ctx.user.role})`
+        ? `${self.name} (employee code ${self.code}, role ${ctx.user.role})`
         : `${ctx.user.name || ctx.user.email} (role ${ctx.user.role}, not linked to an employee record)`;
-    const scope =
-        ctx.mode === "full"
-            ? "They are HR/admin and may see ALL employees."
-            : ctx.mode === "team"
-                ? "They are a manager and may only see their own team and themselves."
-                : "They are an employee and may only see their OWN data. Politely refuse questions about other people.";
-    const iso = (x: Date) => x.toISOString().slice(0, 10);
-    const shift = (days: number) => {
-        const x = new Date(d);
-        x.setUTCDate(x.getUTCDate() + days);
-        return x;
-    };
-    const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
-    const weekStart = shift(-dow);
-    const lastWeekStart = shift(-dow - 7);
-    const lastWeekEnd = shift(-dow - 1);
-    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-    const lastMonthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
-    const lastMonthEnd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0));
     return [
-        `CONTEXT (background info, not a question) - Today is ${todayLabel} (${ctx.today}), India time.`,
-        `Dates: yesterday=${iso(shift(-1))}; this week=${iso(weekStart)} to ${ctx.today}; last week=${iso(lastWeekStart)} to ${iso(lastWeekEnd)}; this month=${iso(monthStart)} to ${ctx.today} (month ${ctx.today.slice(0, 7)}); last month=${iso(lastMonthStart)} to ${iso(lastMonthEnd)} (month ${iso(lastMonthStart).slice(0, 7)}).`,
-        `You are talking to ${who}. When they say me / my / I / mera, use "me" as the employee.`,
-        scope,
-        "",
-        "EMPLOYEE LIST (code | name | team) - the only people that exist:",
+        `CONTEXT (background info, not a question) - Today is ${todayLabel} (${ctx.today}).`,
+        `The user is ${who}.`,
+        "EMPLOYEE LIST (code | name | team):",
         roster || "(none)",
     ].join("\n");
+}
+
+const isIso = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/** Turn the router's JSON into real tool arguments (dates are worked out here, not by the AI). */
+function toolArgs(route: Record<string, unknown>, today: string): { name: string; args: Record<string, unknown> } {
+    const name = String(route.tool);
+    const r = dateRanges(today);
+    const period = String(route.period ?? "");
+    const custom = period === "custom" || (!period && (isIso(route.from) || isIso(route.to)));
+    const range = (): [string, string] => {
+        switch (period) {
+            case "today":
+                return [r.today, r.today];
+            case "yesterday":
+                return [r.yesterday, r.yesterday];
+            case "this_week":
+                return [r.weekStart, r.today];
+            case "last_week":
+                return [r.lastWeekStart, r.lastWeekEnd];
+            case "last_month":
+                return [r.lastMonthStart, r.lastMonthEnd];
+            default:
+                if (custom && isIso(route.from)) return [route.from, isIso(route.to) ? route.to : route.from];
+                return [r.monthStart, r.today]; // this_month / not given
+        }
+    };
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    switch (name) {
+        case "get_employee_attendance": {
+            const [from, to] = range();
+            return { name, args: { employee: str(route.employee) ?? "me", from, to } };
+        }
+        case "get_attendance_on_date": {
+            const date = period === "yesterday" ? r.yesterday : custom && isIso(route.from) ? route.from : r.today;
+            return { name, args: { date, filter: str(route.filter) ?? "all" } };
+        }
+        case "get_monthly_summary": {
+            const [from] = range();
+            return { name, args: { month: from.slice(0, 7), employee: str(route.employee), sort_by: str(route.sort_by) } };
+        }
+        case "find_employees":
+            return { name, args: { query: str(route.query) ?? str(route.employee), team: str(route.team) } };
+        case "get_leave_requests": {
+            const [from, to] = period ? range() : [undefined, undefined];
+            const status = str(route.status);
+            return { name, args: { employee: str(route.employee), from, to, status: status === "any" ? undefined : status } };
+        }
+        case "get_holidays":
+            return { name, args: { year: str(route.year) } };
+        case "get_policy":
+            return { name, args: { topic: str(route.topic) } };
+        default:
+            return { name, args: {} };
+    }
+}
+
+/** A small-talk reply that contains times or a table is made-up data - never show it. */
+function looksLikeInventedData(text: string): boolean {
+    const times = text.match(/\b\d{1,2}:\d{2}\b/g) ?? [];
+    return times.length >= 2 || /\n\s*\|.*\|/.test(text);
 }
 
 /** Employee codes mentioned in an answer that are not real (sign of a made-up answer). */
@@ -152,6 +289,9 @@ function cleanHistory(history: ChatTurn[]): ChatTurn[] {
         );
 }
 
+const NOT_SURE =
+    "Sorry, I couldn't understand that. Try for example: \"Ganesh Sardar attendance this month\", \"who is late today\" or \"late mark policy\".";
+
 /** Ask the assistant. `history` is the conversation so far; the last item must be the user's question. */
 export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<ChatResult> {
     const started = Date.now();
@@ -173,62 +313,42 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                     )
                 )[0] ?? null
                 : null;
-        // Order matters for speed: [fixed instructions + tool list] is the same for everyone, so Ollama
-        // keeps it cached. The per-user context goes into the first user message, after that block.
-        const messages: OllamaMessage[] = [
-            { role: "system", content: STATIC_SYSTEM },
-            { role: "user", content: contextMessage(ctx, roster, selfRow) },
-            ...turns.map((t) => ({ role: t.role, content: t.content }) as OllamaMessage),
-        ];
+        const context = contextMessage(ctx, roster, selfRow);
+        const convo = turns.map((t) => ({ role: t.role, content: t.content }) as OllamaMessage);
+
+        // 1) Router: forced JSON, short reply (~30 tokens).
+        let route: Record<string, unknown> = { tool: "none" };
+        try {
+            const routed = await ollamaChat(
+                [{ role: "system", content: ROUTER_SYSTEM }, { role: "user", content: context }, ...convo],
+                undefined,
+                ROUTER_SCHEMA,
+                120,
+            );
+            const parsed = JSON.parse(routed.content || "{}") as Record<string, unknown>;
+            if (typeof parsed.tool === "string" && (TOOL_NAMES as readonly string[]).includes(parsed.tool)) route = parsed;
+        } catch (e) {
+            console.error("[chat] router reply was not valid JSON:", e);
+        }
 
         let answer = "";
-        for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-            const reply = await ollamaChat(messages, round < MAX_TOOL_ROUNDS ? TOOL_SPECS : undefined);
-            const calls = reply.tool_calls ?? [];
-            if (calls.length === 0) {
-                answer = (reply.content ?? "").trim();
-                break;
-            }
-            messages.push({ role: "assistant", content: reply.content ?? "", tool_calls: calls });
-            const runs = [];
-            for (const call of calls.slice(0, 3)) {
-                const name = call.function?.name ?? "";
-                toolsUsed.push(name);
-                const run = await runTool(ctx, name, call.function?.arguments);
-                runs.push(run);
-                messages.push({ role: "tool", tool_name: name, content: run.json });
-            }
-            // Fast path: the data already answers the question as a ready-made table -> no second AI round.
-            if (runs.length > 0 && runs.every((r) => r.display)) {
-                answer = runs.map((r) => r.display).join("\n\n");
-                break;
-            }
+        if (route.tool !== "none") {
+            // 2) Real data, shown as a ready-made table.
+            const { name, args } = toolArgs(route, ctx.today);
+            toolsUsed.push(name);
+            const run = await runTool(ctx, name, args);
+            answer = run.display ?? NOT_SURE;
+        } else {
+            // 3) Small talk only.
+            const reply = await ollamaChat(
+                [{ role: "system", content: CHAT_SYSTEM }, { role: "user", content: context }, ...convo],
+                undefined,
+                undefined,
+                160,
+            );
+            answer = (reply.content ?? "").trim();
+            if (!answer || looksLikeInventedData(answer) || unknownCodes(answer, roster).length > 0) answer = NOT_SURE;
         }
-        // Safety net: the answer mentions an employee code that doesn't exist -> ask once more.
-        const bad = answer ? unknownCodes(answer, roster) : [];
-        if (bad.length > 0) {
-            messages.push({ role: "assistant", content: answer });
-            messages.push({
-                role: "user",
-                content: `Your answer mentioned ${bad.join(", ")}, which is not in the EMPLOYEE LIST. Answer my previous question again using only the employee list and tool results.`,
-            });
-            const retry = await ollamaChat(messages, TOOL_SPECS);
-            if (retry.tool_calls?.length) {
-                messages.push({ role: "assistant", content: retry.content ?? "", tool_calls: retry.tool_calls });
-                for (const call of retry.tool_calls.slice(0, 4)) {
-                    const name = call.function?.name ?? "";
-                    toolsUsed.push(name);
-                    messages.push({ role: "tool", tool_name: name, content: (await runTool(ctx, name, call.function?.arguments)).json });
-                }
-                answer = ((await ollamaChat(messages)).content ?? "").trim();
-            } else {
-                answer = (retry.content ?? "").trim();
-            }
-            if (unknownCodes(answer, roster).length > 0) {
-                answer = "Sorry, I couldn't find a reliable answer for that. Please check the attendance pages.";
-            }
-        }
-        if (!answer) answer = "Sorry, I couldn't work that out. Please try asking in a different way.";
 
         const durationMs = Date.now() - started;
         void logChat({ user, question: last.content, answer, toolsUsed, durationMs, error: null });

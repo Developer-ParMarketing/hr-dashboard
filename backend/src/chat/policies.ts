@@ -183,3 +183,54 @@ export function policyText(topic?: string): string {
     }
     return out.join('\n')
 }
+const STOP = new Set(['policy', 'policies', 'company', 'what', 'about', 'the', 'our', 'rule', 'rules', 'tell', 'brief', 'info', 'please', 'give', 'kya', 'hai'])
+const SYNONYMS: Record<string, string[]> = {
+    posh: ['harassment'],
+    harassment: ['harassment'],
+    wfh: ['work from home', 'wfh'],
+    'work from home': ['work from home', 'wfh'],
+    late: ['late'],
+    leave: ['leave'],
+    holiday: ['holiday'],
+    'half day': ['half day', 'half-day'],
+    laptop: ['laptop', 'device'],
+    salary: ['salary', 'payroll'],
+}
+
+export type PolicyMatch = {
+    found: boolean
+    /** Matching sections as markdown. */
+    markdown: string
+    /** Every section title, to suggest topics when nothing matched. */
+    allTitles: string[]
+    /** true when a section is about this topic (not just one line mentioning it) */
+    titleMatch: boolean
+}
+
+/** Find policy sections for a topic by keywords. Never falls back to unrelated sections. */
+export function policySections(topic?: string): PolicyMatch {
+    const allTitles = ALL_POLICIES.flatMap((d) => d.sections.map((s) => s.title))
+    const raw = (topic ?? '').toLowerCase().trim()
+    const words = raw.split(/[^a-z0-9-]+/).filter((w) => w.length >= 3 && !STOP.has(w))
+    const terms = new Set<string>()
+    for (const [k, v] of Object.entries(SYNONYMS)) if (raw.includes(k)) v.forEach((x) => terms.add(x))
+    words.forEach((w) => terms.add(w))
+    const out: string[] = []
+    let titleMatch = false
+    for (const doc of ALL_POLICIES) {
+        for (const s of doc.sections) {
+            if (terms.size === 0) continue
+            const titleHay = s.title.toLowerCase()
+            const lines = [s.summary, ...s.rules]
+            const hitTitle = [...terms].some((t) => titleHay.includes(t))
+            const hitLines = lines.filter((l) => [...terms].some((t) => l.toLowerCase().includes(t)))
+            if (!hitTitle && hitLines.length === 0) continue
+            if (hitTitle) titleMatch = true
+            const shown = hitTitle ? s.rules : hitLines.filter((l) => l !== s.summary)
+            out.push(`**${s.title}** (${doc.title})`, ...(hitTitle ? [s.summary] : []), ...shown.map((r) => `- ${r}`))
+            if (hitTitle && s.note) out.push(`_Note: ${s.note}_`)
+            out.push('')
+        }
+    }
+    return { found: out.length > 0, markdown: out.join('\n').trim(), allTitles, titleMatch }
+}

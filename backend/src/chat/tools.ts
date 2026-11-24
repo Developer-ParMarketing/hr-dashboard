@@ -10,7 +10,7 @@ import { findEmployeeIdByUserEmail, resolveAttendanceScope } from "../auth/atten
 import { calendarTodayIso, effectiveEmploymentStatus } from "../employees/employmentStatus.js";
 import type { AuthUser } from "../auth/users.js";
 import type { OllamaToolSpec } from "./ollama.js";
-import { policyText } from "./policies.js";
+import { policySections, policyText } from "./policies.js";
 
 export type ChatContext = {
     user: AuthUser;
@@ -555,8 +555,8 @@ async function getHolidays(ctx: ChatContext, args: ToolArgs) {
 
 async function getPolicy(_ctx: ChatContext, args: ToolArgs) {
     const topic = str(args.topic);
-    const text = policyText(topic) || policyText();
-    return { topic: topic || "all", text };
+    if (!topic) return { topic: "all", found: true, markdown: policyText(), allTitles: [] as string[] };
+    return { topic, ...policySections(topic) };
 }
 
 const IMPLS: Record<string, ToolImpl> = {
@@ -736,8 +736,17 @@ function displayFor(name: string, r: Obj): string | null {
             return `**Holidays ${r.year}**${next ? ` - next: **${next.name}** on ${niceDate(String(next.date))}` : ""}\n\n` +
                 table(["Date", "Holiday", "Type"], list.map((h) => [niceDate(String(h.date)), h.name, h.type]));
         }
+        case "get_policy": {
+            if (r.topic === "all") return `**Company & attendance policies**\n\n${String(r.markdown).replace(/^#+ (.*)$/gm, "**$1**")}`;
+            if (r.found && r.titleMatch) return String(r.markdown);
+            if (r.found) {
+                return `There is no separate **${r.topic}** policy in the company policy document. Related rules:\n\n${r.markdown}\n\nFor anything more, please check with HR.`;
+            }
+            const titles = (r.allTitles as string[]).join(", ");
+            return `I couldn't find a policy about **${r.topic}** in the company policy document.\n\nAvailable policy topics: ${titles}.\n\nPlease check with HR for anything not listed.`;
+        }
         default:
-            return null; // get_policy: the AI summarises
+            return null;
     }
 }
 
