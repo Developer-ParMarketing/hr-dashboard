@@ -125,7 +125,22 @@ async function resolveEmployee(
         params,
     );
     if (rows.length === 0) {
-        return { error: `No employee matching "${raw}" in ${scopeLabel(ctx)}.` };
+        if (ctx.mode !== "full") {
+            const anywhere = await query<{ n: number }>(
+                `SELECT COUNT(*)::int AS n FROM employees e
+                 WHERE upper(e.employee_code) = upper($1) OR e.name ILIKE '%' || $1 || '%'`,
+                [raw],
+            );
+            if ((anywhere[0]?.n ?? 0) > 0) {
+                return {
+                    error:
+                        ctx.mode === "self"
+                            ? `Access denied: employees can only see their own data, not "${raw}". Tell the user politely.`
+                            : `Access denied: "${raw}" is not in your team. Managers can only see their own team.`,
+                };
+            }
+        }
+        return { error: `No employee named or coded "${raw}" exists. Do not guess a name.` };
     }
     const exact = rows.find((r) => r.employee_code.toUpperCase() === raw.toUpperCase());
     if (exact) return { emp: exact };
@@ -150,7 +165,7 @@ function empBrief(e: EmpRow, today: string) {
         status: effectiveEmploymentStatus(e.status, e.date_of_leaving, today),
         dateOfJoining: e.date_of_joining,
         dateOfLeaving: e.date_of_leaving,
-        shiftStart: e.shift_start,
+        shiftStartsAt: e.shift_start,
         workEmail: e.email,
     };
 }
@@ -689,4 +704,18 @@ export async function runTool(ctx: ChatContext, name: string, rawArgs: unknown):
         console.error(`[chat] tool ${name} failed:`, e);
         return JSON.stringify({ error: "Could not read that data right now." });
     }
+}
+
+/** Compact list of the employees this user may see (put in the prompt so the AI never invents names). */
+export async function employeeRoster(ctx: ChatContext): Promise<string> {
+    const params: unknown[] = [];
+    const cond = scopeCond(ctx, params);
+    const rows = await query<EmpRow>(`${EMP_SELECT} WHERE ${cond} ORDER BY e.employee_code LIMIT 200`, params);
+    return rows
+        .map((r) => {
+            const status = effectiveEmploymentStatus(r.status, r.date_of_leaving, ctx.today);
+            const team = r.team_name ?? r.department ?? "-";
+            return `${r.employee_code} | ${r.name} | ${team}${status === "active" ? "" : " | LEFT"}`;
+        })
+        .join("\n");
 }

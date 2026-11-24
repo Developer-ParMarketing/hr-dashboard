@@ -63,7 +63,13 @@ export async function ollamaChat(messages: OllamaMessage[], tools?: OllamaToolSp
                 stream: false,
                 messages,
                 tools: tools && tools.length ? tools : undefined,
-                options: { temperature: 0.2, num_ctx: 8192 },
+                keep_alive: process.env.OLLAMA_KEEP_ALIVE?.trim() || "30m",
+                options: {
+                    temperature: 0.1,
+                    num_ctx: 8192,
+                    // match the CPU cap (8 cores): more threads than cores makes it slower
+                    num_thread: Number(process.env.CHAT_NUM_THREAD) || 8,
+                },
             }),
         });
         if (!res.ok) {

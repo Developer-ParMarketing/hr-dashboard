@@ -1,7 +1,7 @@
 import { query } from "../db/index.js";
 import type { AuthUser } from "../auth/users.js";
 import { ollamaChat, ollamaModel, type OllamaMessage } from "./ollama.js";
-import { TOOL_SPECS, buildChatContext, runTool, type ChatContext } from "./tools.js";
+import { TOOL_SPECS, buildChatContext, employeeRoster, runTool, type ChatContext } from "./tools.js";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -69,13 +69,26 @@ async function logChat(row: {
     }
 }
 
-function systemPrompt(ctx: ChatContext): string {
-    const scope =
-        ctx.mode === "full"
-            ? "This user is HR/admin and may see data for ALL employees."
-            : ctx.mode === "team"
-                ? "This user is a manager and may only see their own team and themselves. The tools already enforce this."
-                : "This user is an employee and may only see their OWN data. The tools already enforce this. Politely refuse questions about other people.";
+/**
+ * Fixed instructions - identical for every question, so Ollama can reuse them
+ * from its cache instead of re-reading them each time (much faster on CPU).
+ */
+const STATIC_SYSTEM = [
+    "You are Par HR Assistant, the HR chatbot of Par Marketing Private Limited (a marketing agency; email domain parmarketing.agency).",
+    "",
+    "Rules:",
+    "- Facts about attendance, punch times, late marks, leaves, holidays and policy MUST come from the tools. Call a tool for every such question, including follow-up questions. Never answer these from memory.",
+    "- Employee names and codes MUST come from the EMPLOYEE LIST in the context message or from tool results. Never invent a person, a code, a surname, a job role or a time. If someone is not in the list, say so.",
+    "- If several people match a name (for example two people called Ganesh), list them and ask which one.",
+    "- If a tool returns an error (for example access denied), explain it politely in one sentence. Do not ask the user for their own code: use \"me\".",
+    "- shiftStartsAt is the usual shift start time, not a joining date. Do not mention fields that are empty.",
+    "- Convert relative dates (today, yesterday, this week = Monday to today, this month, last month) to YYYY-MM-DD using today's date from the context message.",
+    "- Times are 24-hour HH:MM. Worked hours are H:MM. half_day = present but worked under 5 hours.",
+    "- Reply in the user's language (English, Hindi or Hinglish). Be brief. Use a small table when listing several people or days.",
+    "- Never show salary or passwords. Only help with HR, attendance, leave, holidays and company policy.",
+].join("\n");
+
+function contextMessage(ctx: ChatContext, roster: string, self: { code: string; name: string } | null): string {
     const d = new Date(`${ctx.today}T00:00:00Z`);
     const todayLabel = d.toLocaleDateString("en-GB", {
         weekday: "long",
@@ -84,21 +97,44 @@ function systemPrompt(ctx: ChatContext): string {
         year: "numeric",
         timeZone: "UTC",
     });
+    const who = self
+        ? `${self.name} (employee code ${self.code}, login ${ctx.user.email}, role ${ctx.user.role})`
+        : `${ctx.user.name || ctx.user.email} (role ${ctx.user.role}, not linked to an employee record)`;
+    const scope =
+        ctx.mode === "full"
+            ? "They are HR/admin and may see ALL employees."
+            : ctx.mode === "team"
+                ? "They are a manager and may only see their own team and themselves."
+                : "They are an employee and may only see their OWN data. Politely refuse questions about other people.";
+    const iso = (x: Date) => x.toISOString().slice(0, 10);
+    const shift = (days: number) => {
+        const x = new Date(d);
+        x.setUTCDate(x.getUTCDate() + days);
+        return x;
+    };
+    const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
+    const weekStart = shift(-dow);
+    const lastWeekStart = shift(-dow - 7);
+    const lastWeekEnd = shift(-dow - 1);
+    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    const lastMonthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+    const lastMonthEnd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0));
     return [
-        "You are Par HR Assistant, the helpful HR chatbot of Par Marketing.",
-        `Today is ${todayLabel} (${ctx.today}). Time zone: India (IST).`,
-        `You are talking to ${ctx.user.name || ctx.user.email} (role: ${ctx.user.role}). When they say "me", "my" or "I", pass "me" as the employee.`,
+        `CONTEXT - Today is ${todayLabel} (${ctx.today}), India time.`,
+        `Dates: yesterday=${iso(shift(-1))}; this week=${iso(weekStart)} to ${ctx.today}; last week=${iso(lastWeekStart)} to ${iso(lastWeekEnd)}; this month=${iso(monthStart)} to ${ctx.today} (month ${ctx.today.slice(0, 7)}); last month=${iso(lastMonthStart)} to ${iso(lastMonthEnd)} (month ${iso(lastMonthStart).slice(0, 7)}).`,
+        `You are talking to ${who}. When they say me / my / I / mera, use "me" as the employee.`,
         scope,
         "",
-        "Rules:",
-        "- ALWAYS use the tools to get attendance, leave, employee, holiday and policy facts. Never guess or invent names, times or numbers.",
-        "- If a tool returns an error or several candidates, tell the user and ask which one they mean.",
-        "- Convert relative dates (today, yesterday, this week, last month) to YYYY-MM-DD yourself using today's date.",
-        "- Times are 24-hour HH:MM. Worked hours are H:MM. 'half_day' means present but worked under 5 hours.",
-        "- Answer briefly and clearly. Use a short list or a small table when listing several people or days.",
-        "- Never show salary, passwords or anything not returned by the tools.",
-        "- If the question is not about HR, attendance, leave, holidays or company policy, say you can only help with HR topics.",
+        "EMPLOYEE LIST (code | name | team) - the only people that exist:",
+        roster || "(none)",
     ].join("\n");
+}
+
+/** Employee codes mentioned in an answer that are not real (sign of a made-up answer). */
+function unknownCodes(answer: string, roster: string): string[] {
+    const known = new Set(roster.split("\n").map((l) => l.split("|")[0]!.trim().toUpperCase()));
+    const found = answer.toUpperCase().match(/\b[A-Z]{2,5}\d{2,4}\b/g) ?? [];
+    return [...new Set(found)].filter((c) => !known.has(c));
 }
 
 function cleanHistory(history: ChatTurn[]): ChatTurn[] {
@@ -120,8 +156,19 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
     const toolsUsed: string[] = [];
     try {
         const ctx = await buildChatContext(user);
+        const roster = await employeeRoster(ctx);
+        const selfRow =
+            ctx.selfEmployeeId != null
+                ? (
+                    await query<{ code: string; name: string }>(
+                        `SELECT employee_code AS code, name FROM employees WHERE id = $1`,
+                        [ctx.selfEmployeeId],
+                    )
+                )[0] ?? null
+                : null;
         const messages: OllamaMessage[] = [
-            { role: "system", content: systemPrompt(ctx) },
+            { role: "system", content: STATIC_SYSTEM },
+            { role: "system", content: contextMessage(ctx, roster, selfRow) },
             ...turns.map((t) => ({ role: t.role, content: t.content }) as OllamaMessage),
         ];
 
@@ -139,6 +186,30 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                 toolsUsed.push(name);
                 const result = await runTool(ctx, name, call.function?.arguments);
                 messages.push({ role: "tool", tool_name: name, content: result });
+            }
+        }
+        // Safety net: the answer mentions an employee code that doesn't exist -> ask once more.
+        const bad = answer ? unknownCodes(answer, roster) : [];
+        if (bad.length > 0) {
+            messages.push({ role: "assistant", content: answer });
+            messages.push({
+                role: "user",
+                content: `Your answer mentioned ${bad.join(", ")}, which is not in the EMPLOYEE LIST. Answer my previous question again using only the employee list and tool results.`,
+            });
+            const retry = await ollamaChat(messages, TOOL_SPECS);
+            if (retry.tool_calls?.length) {
+                messages.push({ role: "assistant", content: retry.content ?? "", tool_calls: retry.tool_calls });
+                for (const call of retry.tool_calls.slice(0, 4)) {
+                    const name = call.function?.name ?? "";
+                    toolsUsed.push(name);
+                    messages.push({ role: "tool", tool_name: name, content: await runTool(ctx, name, call.function?.arguments) });
+                }
+                answer = ((await ollamaChat(messages)).content ?? "").trim();
+            } else {
+                answer = (retry.content ?? "").trim();
+            }
+            if (unknownCodes(answer, roster).length > 0) {
+                answer = "Sorry, I couldn't find a reliable answer for that. Please check the attendance pages.";
             }
         }
         if (!answer) answer = "Sorry, I couldn't work that out. Please try asking in a different way.";
