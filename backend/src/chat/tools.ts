@@ -612,7 +612,8 @@ async function getHolidays(ctx: ChatContext, args: ToolArgs) {
 
 async function getPolicy(_ctx: ChatContext, args: ToolArgs) {
     const topic = str(args.topic);
-    const brief = args.brief === true;
+    // brief: 0 = full policy, 1 = short (default), 2 = shortest (one line per section)
+    const brief = args.brief === true ? 1 : typeof args.brief === "number" ? args.brief : 0;
     if (!topic) return { topic: "all", brief, found: true, markdown: await policyText(), allTitles: [] as string[] };
     return { topic, brief, ...(await policySections(topic)) };
 }
@@ -728,7 +729,7 @@ function nameList(names: string[], max = 6): string {
  * Short version of policy markdown: each section's title + summary + its first 2 rules (trimmed).
  * Works on the markdown policySections/policyText return ("**Title** (Doc)", summary line, "- rule" lines).
  */
-function briefPolicy(markdown: string): string {
+function briefPolicy(markdown: string, maxRules = 2): string {
     const out: string[] = [];
     let rulesShown = 0;
     let summaryDone = false;
@@ -751,7 +752,7 @@ function briefPolicy(markdown: string): string {
             const rule = line.slice(2);
             const head = (t: string) => t.toLowerCase().split(/\s+/).slice(0, 4).join(" ");
             if (summaryLine && head(rule) === head(summaryLine)) continue; // same as the summary
-            if (rulesShown < 2) out.push(`  - ${clip(rule)}`);
+            if (rulesShown < maxRules) out.push(`  - ${clip(rule)}`);
             rulesShown++;
         } else if (!summaryDone && out.length) {
             out[out.length - 1] += `: ${clip(line)}`;
@@ -974,7 +975,7 @@ function displayFor(name: string, r: Obj): string | null {
         case "get_policy": {
             if (r.brief && r.found) {
                 const intro = r.topic === "all" ? "Here are our policies in short:" : `Here's the **${r.topic}** policy in short:`;
-                return `${intro}\n\n${briefPolicy(String(r.markdown))}\n\nWant every rule? Just say **"full policy"**.`;
+                return `${intro}\n\n${briefPolicy(String(r.markdown), r.brief === 2 ? 0 : 2)}\n\nWant every rule? Just say **"full policy"**.`;
             }
             if (r.topic === "all") return `Here are the company and attendance policies:\n\n${String(r.markdown).replace(/^#+ (.*)$/gm, "**$1**")}`;
             if (r.found && r.titleMatch) return `Here's what the policy says:\n\n${r.markdown}`;

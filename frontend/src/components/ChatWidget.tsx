@@ -106,17 +106,21 @@ function Markdown({ text }: { text: string }) {
         }
         // list
         if (/^\s*([-*•]|\d+\.)\s+/.test(line)) {
-            const items: string[] = []
+            const items: { text: string; sub: boolean }[] = []
             const ordered = /^\s*\d+\./.test(line)
+            const baseIndent = line.match(/^\s*/)![0].length
             while (i < lines.length && /^\s*([-*•]|\d+\.)\s+/.test(lines[i]!)) {
-                items.push(lines[i]!.replace(/^\s*([-*•]|\d+\.)\s+/, ''))
+                const indent = lines[i]!.match(/^\s*/)![0].length
+                items.push({ text: lines[i]!.replace(/^\s*([-*•]|\d+\.)\s+/, ''), sub: indent > baseIndent })
                 i++
             }
             const ListTag = ordered ? 'ol' : 'ul'
             blocks.push(
                 <ListTag key={`l${i}`} className={`my-1 space-y-0.5 pl-5 ${ordered ? 'list-decimal' : 'list-disc'}`}>
                     {items.map((it, j) => (
-                        <li key={j}>{inline(it, `li${i}${j}`)}</li>
+                        <li key={j} className={it.sub ? 'ml-4 list-[circle] text-[0.95em] opacity-90' : undefined}>
+                            {inline(it.text, `li${i}${j}`)}
+                        </li>
                     ))}
                 </ListTag>,
             )

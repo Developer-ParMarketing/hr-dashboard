@@ -2,6 +2,8 @@ import { query } from "../db/index.js";
 import type { AuthUser } from "../auth/users.js";
 import { ollamaChat, ollamaModel, type OllamaMessage } from "./ollama.js";
 import { buildChatContext, employeeRoster, runTool, type ChatContext } from "./tools.js";
+import { geminiEnabled, geminiGenerate, maskPersonalData } from "./gemini.js";
+import { policyText } from "./policies.js";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -291,7 +293,10 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
             return { name, args: { year: str(route.year) } };
         case "get_policy":
             // Short answer by default (like a chat); the full policy only when asked ("full", "details", "poora").
-            return { name, args: { topic: str(route.topic), brief: !FULL_RE.test(question) } };
+            return {
+                name,
+                args: { topic: str(route.topic), brief: FULL_RE.test(question) ? 0 : SHORTEST_RE.test(question) ? 2 : 1 },
+            };
         case "list_teams":
             return { name, args: { team: str(route.team) ?? str(route.query) } };
         case "get_today_overview":
@@ -305,6 +310,9 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
 
 /** "make it short", "summary", "in short", "chhota karo" */
 const BRIEF_RE = /\b(short|shorter|summary|summarize|summarise|summery|summeries|summaries|summeiries|brief|briefly|chhota|chota|kam me|in short|tldr|quick)\b/i;
+
+/** "one line", "even shorter", "aur chhota" */
+const SHORTEST_RE = /\b(one line|1 line|ek line|shorter|very short|more short|aur chhota|aur chota|shortest|__shorter__)\b/i;
 
 /** "full policy", "in detail", "all rules", "poora batao" */
 const FULL_RE = /\b(full|fully|detail|details|detailed|complete|all rules|every rule|explain all|poora|pura|puri|poori|sab rules|sabhi rules)\b/i;
@@ -337,6 +345,52 @@ function cleanHistory(history: ChatTurn[]): ChatTurn[] {
 
 const NOT_SURE =
     "Sorry, I couldn't understand that. Try for example: \"Ganesh Sardar attendance this month\", \"who is late today\" or \"late mark policy\".";
+
+/** The user's last few questions (no answers - they may hold data), masked for sending to Gemini. */
+function recentQuestions(turns: ChatTurn[], roster: string): string {
+    const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskPersonalData(t.content, roster));
+    const lastQ = qs.pop() ?? "";
+    return (qs.length ? `Earlier questions (oldest first):\n${qs.map((x) => `- ${x}`).join("\n")}\n\n` : "") + `Question: ${lastQ}`;
+}
+
+const POLICY_SYSTEM = [
+    "You are Par HR Assistant, the friendly HR chatbot of Par Marketing Private Limited.",
+    "Answer ONLY from the company text given below. Never invent rules, numbers, days, amounts or deadlines.",
+    "If the text does not cover the question, say so in one sentence and suggest asking HR.",
+    "Answer only what was asked - not every section. Talk like a helpful colleague in a chat, not like a document.",
+    "Length: by default 2-5 short bullet points or 2-3 sentences.",
+    "If the user asks for 'full', 'details' or 'all rules', cover every relevant rule.",
+    "If the user asks for 'short', 'summary', 'one line' or 'shorter', give 1-2 sentences.",
+    "Reply in the user's language (English, Hindi or Hinglish - match how they write).",
+    "Format: plain text with **bold** and '- ' bullets only. No tables, no headings.",
+].join("\n");
+
+const HELP_SYSTEM = [
+    "You are Par HR Assistant, the friendly HR chatbot of Par Marketing Private Limited's HR portal.",
+    "Explain how to do things in the portal using ONLY the help text given below. Never invent menus, buttons or pages.",
+    "If the help text does not cover it, say so and suggest asking HR or the admin.",
+    "Give short numbered steps (max 6). Reply in the user's language (English, Hindi or Hinglish).",
+    "Format: plain text with **bold** and numbered steps only. No tables, no headings.",
+].join("\n");
+
+/** Gemini wording for policy / help answers. Sends company text + the user's (masked) questions only. */
+async function geminiAnswer(name: string, toolJson: string, turns: ChatTurn[], roster: string): Promise<string | null> {
+    let source = "";
+    if (name === "get_policy") {
+        // The whole policy, so Gemini can pick the right part (it is company text, not personal data).
+        source = String(await policyText());
+    } else {
+        try {
+            const r = JSON.parse(toolJson) as { topics?: Array<{ markdown: string }> };
+            source = (r.topics ?? []).map((t) => t.markdown).join("\n\n");
+        } catch {
+            source = "";
+        }
+        if (!source) return null; // nothing matched - keep the built-in "I can explain: ..." answer
+    }
+    const prompt = `Company text:\n<<<\n${source.slice(0, 20_000)}\n>>>\n\n${recentQuestions(turns, roster)}`;
+    return geminiGenerate(name === "get_policy" ? POLICY_SYSTEM : HELP_SYSTEM, prompt, 1024);
+}
 
 /** Ask the assistant. `history` is the conversation so far; the last item must be the user's question. */
 export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<ChatResult> {
@@ -398,6 +452,8 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                 }
             }
             if (rerouted || route.tool === "get_policy") question = `${prevUser?.content ?? ""} ${last.content}`;
+            const prevAnswer = [...turns].reverse().find((t) => t.role === "assistant")?.content ?? "";
+            if (BRIEF_RE.test(last.content) && /in short:/i.test(prevAnswer)) question += " __shorter__";
         }
 
         // Safety overrides for common slips of the small model.
@@ -417,8 +473,25 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
             toolsUsed.push(name);
             const run = await runTool(ctx, name, args);
             answer = run.display ?? NOT_SURE;
+            // Policy / how-to answers: let Gemini word them like a chat (no personal data is sent).
+            if ((name === "get_policy" || name === "get_help") && geminiEnabled()) {
+                const ai = await geminiAnswer(name, run.json, turns, roster);
+                if (ai && unknownCodes(ai, roster).length === 0 && !/\n\s*\|.*\|/.test(ai)) {
+                    answer = ai;
+                    toolsUsed.push("gemini");
+                }
+            }
+        } else if (geminiEnabled()) {
+            // 3a) Small talk via Gemini - only the user's questions are sent, with names/codes/emails masked.
+            const ai = await geminiGenerate(CHAT_SYSTEM, recentQuestions(turns, roster), 400);
+            if (ai && !looksLikeInventedData(ai) && unknownCodes(ai, roster).length === 0) {
+                answer = ai;
+                toolsUsed.push("gemini");
+            } else {
+                answer = NOT_SURE;
+            }
         } else {
-            // 3) Small talk only.
+            // 3b) Small talk only (local AI).
             const reply = await ollamaChat(
                 [{ role: "system", content: CHAT_SYSTEM }, { role: "user", content: context }, ...convo],
                 undefined,
