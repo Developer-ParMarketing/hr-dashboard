@@ -91,6 +91,7 @@ const TOOL_NAMES = [
     "get_holidays",
     "get_policy",
     "list_teams",
+    "get_hr_contacts",
     "get_today_overview",
     "get_help",
     "none",
@@ -135,6 +136,7 @@ const ROUTER_SYSTEM = [
     "- get_holidays: holidays (year optional).",
     "- get_policy: any policy / rule question. topic = short keyword (late, leave, wfh, half day, posh, laptop, conduct...).",
     "- list_teams: managers, list of managers, teams, who is in a team, team size. team = team or manager name (optional).",
+    "- get_hr_contacts: who is HR, how many HR people, HR contact, admins of the portal.",
     "- get_today_overview: today's attendance summary / status / how many came today (counts only).",
     "- get_help: HOW TO use this HR portal: apply leave, in/out request, reimbursement, where to see attendance/payslip/goal sheet/appraisal/holidays, offer or relieving letter, salary, add employee, reset password, what the chatbot can do.",
     "- none: greetings, thanks, 'what is my name', company name, or anything not about HR data.",
@@ -155,6 +157,7 @@ const ROUTER_SYSTEM = [
     "what is the posh policy -> {\"tool\":\"get_policy\",\"topic\":\"posh\"}",
     "list of managers -> {\"tool\":\"list_teams\"}",
     "who is in design team -> {\"tool\":\"list_teams\",\"team\":\"design\"}",
+    "how many hr are there -> {\"tool\":\"get_hr_contacts\"}",
     "aaj ka attendance status -> {\"tool\":\"get_today_overview\"}",
     "how do I apply for leave -> {\"tool\":\"get_help\"}",
     "leave kaise apply kare -> {\"tool\":\"get_help\"}",
@@ -346,6 +349,23 @@ function cleanHistory(history: ChatTurn[]): ChatTurn[] {
 const NOT_SURE =
     "Sorry, I couldn't understand that. Try for example: \"Ganesh Sardar attendance this month\", \"who is late today\" or \"late mark policy\".";
 
+const GREETING_RE = /^(hi+|hello+|hey+|hii+|helo|namaste|namaskar|good (morning|afternoon|evening)|gm|yo)\b[\s!.,?]*(there|bro|buddy|ji|sir|ma'?am)?[\s!.,?]*((how are (u|you)|kaise ho|kya haal hai|how r u|wassup|what'?s up)[\s!.,?]*)?$/i;
+
+function greeting(name: string): string {
+    const first = name.trim().split(/\s+/)[0] ?? "";
+    return [
+        `Hi${first ? ` ${first}` : ""}! I'm doing great, thanks for asking 😊`,
+        "",
+        "I can help you with:",
+        "- **Attendance** - \"my attendance this month\", \"who is late today\"",
+        "- **Leaves & approvals** - \"pending approvals\", \"how do I apply leave\"",
+        "- **Teams & people** - \"list of managers\", \"who is HR\"",
+        "- **Policies & holidays** - \"leave policy\", \"next holiday\"",
+        "",
+        "What would you like to know?",
+    ].join("\n");
+}
+
 /** The user's last few questions (no answers - they may hold data), masked for sending to Gemini. */
 function recentQuestions(turns: ChatTurn[], roster: string): string {
     const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskPersonalData(t.content, roster));
@@ -418,17 +438,20 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
 
         // 1) Router: forced JSON, short reply (~30 tokens).
         let route: Record<string, unknown> = { tool: "none" };
-        try {
-            const routed = await ollamaChat(
-                [{ role: "system", content: ROUTER_SYSTEM }, { role: "user", content: context }, ...convo],
-                undefined,
-                ROUTER_SCHEMA,
-                120,
-            );
-            const parsed = JSON.parse(routed.content || "{}") as Record<string, unknown>;
-            if (typeof parsed.tool === "string" && (TOOL_NAMES as readonly string[]).includes(parsed.tool)) route = parsed;
-        } catch (e) {
-            console.error("[chat] router reply was not valid JSON:", e);
+        const isGreeting = GREETING_RE.test(last.content.trim());
+        if (!isGreeting) {
+            try {
+                const routed = await ollamaChat(
+                    [{ role: "system", content: ROUTER_SYSTEM }, { role: "user", content: context }, ...convo],
+                    undefined,
+                    ROUTER_SCHEMA,
+                    120,
+                );
+                const parsed = JSON.parse(routed.content || "{}") as Record<string, unknown>;
+                if (typeof parsed.tool === "string" && (TOOL_NAMES as readonly string[]).includes(parsed.tool)) route = parsed;
+            } catch (e) {
+                console.error("[chat] router reply was not valid JSON:", e);
+            }
         }
 
         // "make it short" / "summary" on its own -> answer the previous question again, briefly.
@@ -462,6 +485,9 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
             const named = typeof route.query === "string" && route.query && !/manager|team/i.test(route.query);
             if (!named) route = { tool: "list_teams", team: route.team };
         }
+        if (/\b(hr|human resources?|admins?)\b/.test(q) && /\b(who|how many|kitne|kitni|kaun|list|contact|people|persons?|team|about)\b/.test(q) && !/\bpolic(y|ies)\b/.test(q)) {
+            route = { tool: "get_hr_contacts" };
+        }
         if (/\b(how (do|can|to)|kaise|where (is|can|do)|kahan|steps?)\b/.test(q) && route.tool === "none") {
             route = { tool: "get_help" };
         }
@@ -481,17 +507,20 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
                     toolsUsed.push("gemini");
                 }
             }
-        } else if (geminiEnabled()) {
-            // 3a) Small talk via Gemini - only the user's questions are sent, with names/codes/emails masked.
+        } else if (isGreeting) {
+            // 3a) Plain greeting - instant, no AI needed.
+            answer = greeting(selfRow?.name ?? user.name ?? "");
+        }
+        if (!answer && geminiEnabled()) {
+            // 3b) Small talk via Gemini - only the user's questions are sent, with names/codes/emails masked.
             const ai = await geminiGenerate(CHAT_SYSTEM, recentQuestions(turns, roster), 400);
             if (ai && !looksLikeInventedData(ai) && unknownCodes(ai, roster).length === 0) {
                 answer = ai;
                 toolsUsed.push("gemini");
-            } else {
-                answer = NOT_SURE;
             }
-        } else {
-            // 3b) Small talk only (local AI).
+        }
+        if (!answer) {
+            // 3c) Small talk with the local AI (also the fallback when Gemini is off or fails).
             const reply = await ollamaChat(
                 [{ role: "system", content: CHAT_SYSTEM }, { role: "user", content: context }, ...convo],
                 undefined,

@@ -120,7 +120,7 @@ async function resolveEmployee(
     const rows = await query<EmpRow>(
         `${EMP_SELECT}
      WHERE ${cond}
-       AND (upper(e.employee_code) = upper($1) OR e.name ILIKE '%' || $1 || '%')
+       AND (upper(e.employee_code) = upper($1) OR (e.name ILIKE $1 || '%' OR e.name ILIKE '% ' || $1 || '%'))
      ORDER BY (upper(e.employee_code) = upper($1)) DESC, e.employee_code
      LIMIT 10`,
         params,
@@ -129,7 +129,7 @@ async function resolveEmployee(
         if (ctx.mode !== "full") {
             const anywhere = await query<{ n: number }>(
                 `SELECT COUNT(*)::int AS n FROM employees e
-                 WHERE upper(e.employee_code) = upper($1) OR e.name ILIKE '%' || $1 || '%'`,
+                 WHERE upper(e.employee_code) = upper($1) OR (e.name ILIKE $1 || '%' OR e.name ILIKE '% ' || $1 || '%')`,
                 [raw],
             );
             if ((anywhere[0]?.n ?? 0) > 0) {
@@ -240,7 +240,9 @@ async function findEmployees(ctx: ChatContext, args: ToolArgs) {
     const conds = [scopeCond(ctx, params)];
     if (q) {
         params.push(q);
-        conds.push(`(upper(e.employee_code) = upper($${params.length}) OR e.name ILIKE '%' || $${params.length} || '%')`);
+        conds.push(
+            `(upper(e.employee_code) = upper($${params.length}) OR e.name ILIKE $${params.length} || '%' OR e.name ILIKE '% ' || $${params.length} || '%')`,
+        );
     }
     if (team) {
         params.push(team);
@@ -369,6 +371,23 @@ async function getAttendanceOnDate(ctx: ChatContext, args: ToolArgs) {
             ).length,
         },
         employees: filtered.slice(0, MAX_ROWS),
+    };
+}
+
+/** People with HR / admin access in the portal (anyone may ask who HR is). */
+async function getHrContacts(_ctx: ChatContext, _args: ToolArgs) {
+    const rows = await query<{ name: string; email: string; role: string; code: string | null; team: string | null }>(
+        `SELECT COALESCE(NULLIF(e.name, ''), NULLIF(u.name, ''), u.email) AS name, u.email, u.role,
+                e.employee_code AS code, COALESCE(t.name, e.department) AS team
+           FROM users u
+           LEFT JOIN employees e ON lower(e.email) = lower(u.email)
+           LEFT JOIN teams t ON t.id = e.team_id
+          WHERE u.role IN ('hr', 'admin') AND COALESCE(u.account_disabled, FALSE) = FALSE
+          ORDER BY (u.role = 'hr') DESC, name`,
+    ).catch(() => []);
+    return {
+        hr: rows.filter((r) => r.role === "hr").map((r) => ({ name: r.name, code: r.code, email: r.email, team: r.team })),
+        admins: rows.filter((r) => r.role === "admin").map((r) => ({ name: r.name, code: r.code, email: r.email, team: r.team })),
     };
 }
 
@@ -628,6 +647,7 @@ const IMPLS: Record<string, ToolImpl> = {
     get_holidays: getHolidays,
     get_policy: getPolicy,
     list_teams: listTeams,
+    get_hr_contacts: getHrContacts,
     get_today_overview: getTodayOverview,
     get_help: getHelp,
 };
@@ -671,6 +691,7 @@ export const TOOL_SPECS: OllamaToolSpec[] = [
     tool("get_holidays", "Company holiday list.", { year: S("string") }),
     tool("get_policy", "Company / attendance policy text.", { topic: S("string", "e.g. late, leave, wfh") }),
     tool("list_teams", "Teams, their managers and members.", { team: S("string") }),
+    tool("get_hr_contacts", "Who is HR / admin in the portal and how many.", {}),
     tool("get_today_overview", "Today's attendance counts.", {}),
     tool("get_help", "How to use the HR portal.", { question: S("string") }),
 ];
@@ -783,6 +804,17 @@ function displayFor(name: string, r: Obj): string | null {
             }
             return `I found **${list.length} people**: ${nameList(list.map((e) => `${e.name} (${e.code})`))}.\n\n` +
                 table(["Code", "Name", "Team", "Manager", "Shift start"], list.map((e) => [e.code, e.name, e.team, e.manager, e.shiftStartsAt]));
+        }
+        case "get_hr_contacts": {
+            const hr = r.hr as Obj[];
+            const admins = r.admins as Obj[];
+            const who = (p: Obj) => `${p.name}${p.code ? ` (${p.code})` : ""}`;
+            if (!hr.length && !admins.length) return "No HR accounts are set up in the portal yet.";
+            const intro = hr.length
+                ? `There ${hr.length === 1 ? "is" : "are"} **${plural(hr.length, "HR person", "HR people")}**: ${nameList(hr.map((p) => `**${who(p)}**`), 10)}.`
+                : "No one has the HR role yet.";
+            const adm = admins.length ? ` ${plural(admins.length, "admin")} also ${admins.length === 1 ? "has" : "have"} full access: ${nameList(admins.map(who), 10)}.` : "";
+            return `${intro}${adm}\n\n` + table(["Name", "Role", "Email"], [...hr.map((p) => [who(p), "HR", p.email]), ...admins.map((p) => [who(p), "Admin", p.email])]);
         }
         case "list_teams": {
             const teams = r.teams as Obj[];
