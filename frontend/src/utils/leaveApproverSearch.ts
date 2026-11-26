@@ -48,7 +48,8 @@ export function canDecideLeaveRequest(
   if (row.status !== 'pending') return false
   if (row.requesterUserId === viewerUserId) return false
   if (row.approvalTier === 'manager') {
-    return row.assignedApproverUserId === viewerUserId
+    // HR / admin can step in when the manager is away.
+    return row.assignedApproverUserId === viewerUserId || isExecutiveApprover
   }
   return isExecutiveApprover
 }

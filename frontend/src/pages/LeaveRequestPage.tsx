@@ -310,6 +310,7 @@ export function LeaveRequestPage() {
               submitting={submitting}
               onSubmit={(e) => void handleSubmit(e)}
               myRequests={mine}
+              balance={balance}
             />
           ) : null}
 

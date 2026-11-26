@@ -35,6 +35,13 @@ type Props = {
   submitting: boolean
   onSubmit: (e: React.FormEvent) => void
   myRequests?: LeaveRequest[]
+  /** Current-year balance; used to show days left and block requests over the balance. */
+  balance?: LeaveBalance | null
+}
+
+/** Days still free to book for a type: remaining minus days already waiting for approval. */
+function availableDays(balance: LeaveBalance, type: LeaveType): number {
+  return Math.max(0, (balance.remaining[type] ?? 0) - (balance.requested?.[type] ?? 0))
 }
 
 function parseIsoDateLocal(iso: string): Date | null {
@@ -367,15 +374,16 @@ export function LeaveApplyPanel({
   submitting,
   onSubmit,
   myRequests = [],
+  balance = null,
 }: Props) {
   const options =
     leaveTypes.length > 0
       ? leaveTypes
       : [
-          { id: 'pl' as const, label: 'Personal Leave (PL)' },
-          { id: 'sl' as const, label: 'Sick Leave (SL)' },
-          { id: 'cl' as const, label: 'Casual Leave (CL)' },
-        ]
+        { id: 'pl' as const, label: 'Personal Leave (PL)' },
+        { id: 'sl' as const, label: 'Sick Leave (SL)' },
+        { id: 'cl' as const, label: 'Casual Leave (CL)' },
+      ]
 
   const dayCount = countInclusiveDays(startDate, endDate)
   const minRequestDate = useMemo(() => istClockSnapshot().isoDate, [])
@@ -388,12 +396,17 @@ export function LeaveApplyPanel({
     endDate >= startDate
 
   const summaryLine = previewReady
-    ? `${typeDisplay} · ${dayCount} day${dayCount === 1 ? '' : 's'} · ${formatLeaveDateShort(startDate)}${
-        startDate !== endDate ? ` - ${formatLeaveDateShort(endDate)}` : ''
-      }`
+    ? `${typeDisplay} · ${dayCount} day${dayCount === 1 ? '' : 's'} · ${formatLeaveDateShort(startDate)}${startDate !== endDate ? ` - ${formatLeaveDateShort(endDate)}` : ''
+    }`
     : 'Pick a leave type and dates on the calendar.'
 
-  const canSubmit = previewReady
+  // Only check against the balance we have (same calendar year); the server checks every case.
+  const balanceApplies =
+    balance != null && previewReady && Number(startDate.slice(0, 4)) === balance.year && Number(endDate.slice(0, 4)) === balance.year
+  const available = balance ? availableDays(balance, leaveType) : null
+  const overBalance = balanceApplies && available != null && dayCount != null && dayCount > available
+
+  const canSubmit = previewReady && !overBalance
 
   const [applyPreviewWarnings, setApplyPreviewWarnings] = useState<string[]>([])
   const [applyPreviewLoading, setApplyPreviewLoading] = useState(false)
@@ -471,6 +484,15 @@ export function LeaveApplyPanel({
                       {t.label.replace(/\s*\([A-Z]+\)\s*$/, '')}
                     </span>
                     <span className="block text-xs text-[var(--color-warm-text)]">{style.hint}</span>
+                    {balance ? (
+                      <span
+                        className={`mt-1 block text-xs font-semibold tabular-nums ${availableDays(balance, t.id) === 0 ? 'text-red-700' : 'text-[var(--color-ink)]'
+                          }`}
+                      >
+                        {availableDays(balance, t.id)} day{availableDays(balance, t.id) === 1 ? '' : 's'} left
+                        {(balance.requested?.[t.id] ?? 0) > 0 ? ` · ${balance.requested[t.id]} pending` : ''}
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               )
@@ -492,6 +514,19 @@ export function LeaveApplyPanel({
                 style={{ width: `${Math.min(100, (dayCount / 14) * 100)}%` }}
               />
             </div>
+          </div>
+        ) : null}
+
+        {overBalance && available != null && dayCount != null ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
+            <p className="font-semibold">Not enough {typeDisplay} balance</p>
+            <p className="mt-0.5 text-xs">
+              You have {available} day{available === 1 ? '' : 's'} left
+              {(balance?.requested?.[leaveType] ?? 0) > 0
+                ? ` (after ${balance?.requested[leaveType]} day${balance?.requested[leaveType] === 1 ? '' : 's'} already waiting for approval)`
+                : ''}
+              , but this request is {dayCount} day{dayCount === 1 ? '' : 's'}. Pick fewer days or another leave type.
+            </p>
           </div>
         ) : null}
 
@@ -541,6 +576,8 @@ export function LeaveApplyPanel({
         </button>
         {!previewReady ? (
           <p className="text-xs text-[var(--color-warm-text)]">Choose dates on the calendar to continue.</p>
+        ) : overBalance ? (
+          <p className="text-xs text-red-700">This request is more than your available balance.</p>
         ) : null}
       </div>
     </form>

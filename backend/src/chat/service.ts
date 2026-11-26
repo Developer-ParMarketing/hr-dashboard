@@ -2,8 +2,9 @@ import { query } from "../db/index.js";
 import type { AuthUser } from "../auth/users.js";
 import { ollamaChat, ollamaModel, type OllamaMessage } from "./ollama.js";
 import { buildChatContext, employeeRoster, runTool, type ChatContext } from "./tools.js";
-import { geminiEnabled, geminiGenerate, maskPersonalData } from "./gemini.js";
+import { geminiEnabled, geminiGenerate, maskPersonalData, maskReversible, newMaskMap, unmask } from "./gemini.js";
 import { policyText } from "./policies.js";
+import { dateFromQuestion, type QuestionDate } from "./dates.js";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -92,6 +93,7 @@ const TOOL_NAMES = [
     "get_policy",
     "list_teams",
     "get_hr_contacts",
+    "get_leave_balance",
     "get_today_overview",
     "get_help",
     "none",
@@ -137,6 +139,7 @@ const ROUTER_SYSTEM = [
     "- get_policy: any policy / rule question. topic = short keyword (late, leave, wfh, half day, posh, laptop, conduct...).",
     "- list_teams: managers, list of managers, teams, who is in a team, team size. team = team or manager name (optional).",
     "- get_hr_contacts: who is HR, how many HR people, HR contact, admins of the portal.",
+    "- get_leave_balance: leave balance, how many leaves left, kitni chhutti bachi (PL/SL/CL). employee optional (default me).",
     "- get_today_overview: today's attendance summary / status / how many came today (counts only).",
     "- get_help: HOW TO use this HR portal: apply leave, in/out request, reimbursement, where to see attendance/payslip/goal sheet/appraisal/holidays, offer or relieving letter, salary, add employee, reset password, what the chatbot can do.",
     "- none: greetings, thanks, 'what is my name', company name, or anything not about HR data.",
@@ -158,6 +161,8 @@ const ROUTER_SYSTEM = [
     "list of managers -> {\"tool\":\"list_teams\"}",
     "who is in design team -> {\"tool\":\"list_teams\",\"team\":\"design\"}",
     "how many hr are there -> {\"tool\":\"get_hr_contacts\"}",
+    "how many leaves do I have left -> {\"tool\":\"get_leave_balance\",\"employee\":\"me\"}",
+    "my pending leave requests -> {\"tool\":\"get_leave_requests\",\"employee\":\"me\",\"status\":\"pending\"}",
     "aaj ka attendance status -> {\"tool\":\"get_today_overview\"}",
     "how do I apply for leave -> {\"tool\":\"get_help\"}",
     "leave kaise apply kare -> {\"tool\":\"get_help\"}",
@@ -228,12 +233,20 @@ function contextMessage(ctx: ChatContext, roster: string, self: { code: string; 
 const isIso = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 /** Turn the router's JSON into real tool arguments (dates are worked out here, not by the AI). */
-function toolArgs(route: Record<string, unknown>, today: string, question = ""): { name: string; args: Record<string, unknown> } {
+function toolArgs(
+    route: Record<string, unknown>,
+    today: string,
+    question = "",
+    asked: QuestionDate | null = null,
+): { name: string; args: Record<string, unknown> } {
     const name = String(route.tool);
     const r = dateRanges(today);
     const period = String(route.period ?? "");
     const custom = period === "custom" || (!period && (isIso(route.from) || isIso(route.to)));
+    // A date written in the question ("on tuesday", "25 nov", "kal") always wins over the AI's guess.
+    const askedDay = asked?.single ? asked.from : null;
     const range = (): [string, string] => {
+        if (asked) return [asked.from, asked.to];
         switch (period) {
             case "today":
                 return [r.today, r.today];
@@ -269,7 +282,7 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
             return { name, args: { employee: str(route.employee) ?? "me", from, to, only } };
         }
         case "get_attendance_on_date": {
-            const date = period === "yesterday" ? r.yesterday : custom && isIso(route.from) ? route.from : r.today;
+            const date = askedDay ?? (period === "yesterday" ? r.yesterday : custom && isIso(route.from) ? route.from : r.today);
             let filter = str(route.filter) ?? "all";
             // Safety: only list "not punched in" when the question actually says so.
             if (filter === "not_punched_in" && !/\b(not|n't|nahi|nahin|nhi|missing|without|abhi tak|absent|yet)\b|n't/i.test(question)) {
@@ -288,7 +301,7 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
         case "find_employees":
             return { name, args: { query: str(route.query) ?? str(route.employee), team: str(route.team) } };
         case "get_leave_requests": {
-            const [from, to] = period ? range() : [undefined, undefined];
+            const [from, to] = period || (asked && !asked.single) ? range() : [undefined, undefined];
             const status = str(route.status);
             return { name, args: { employee: str(route.employee), from, to, status: status === "any" ? undefined : status } };
         }
@@ -303,7 +316,9 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
         case "list_teams":
             return { name, args: { team: str(route.team) ?? str(route.query) } };
         case "get_today_overview":
-            return { name, args: { date: period === "yesterday" ? r.yesterday : r.today } };
+            return { name, args: { date: askedDay ?? (period === "yesterday" ? r.yesterday : r.today) } };
+        case "get_leave_balance":
+            return { name, args: { employee: str(route.employee) ?? "me", year: str(route.year) } };
         case "get_help":
             return { name, args: { question } };
         default:
@@ -366,6 +381,38 @@ function greeting(name: string): string {
     ].join("\n");
 }
 
+/**
+ * Router via Gemini (fast, ~1-2 s) - only the user's last questions are sent, with every name, code,
+ * email and phone replaced by a token like [[P1]] that is swapped back here. Null = use the local AI.
+ */
+async function geminiRoute(turns: ChatTurn[], roster: string, today: string): Promise<Record<string, unknown> | null> {
+    if (!geminiEnabled()) return null;
+    const map = newMaskMap();
+    const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskReversible(t.content, roster, map));
+    const lastQ = qs.pop() ?? "";
+    const weekday = new Date(`${today}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+    const system =
+        ROUTER_SYSTEM +
+        "\n\nPeople are hidden as tokens like [[P1]] - copy the token exactly into employee / query." +
+        `\nToday is ${weekday} ${today}. For a named day or date use period custom with from (and to) as YYYY-MM-DD.`;
+    const prompt =
+        (qs.length ? `Earlier questions (oldest first):\n${qs.map((x) => `- ${x}`).join("\n")}\n\n` : "") +
+        `LAST message: ${lastQ}\n\nJSON:`;
+    const raw = await geminiGenerate(system, prompt, 200, { json: true, timeoutMs: 5000 });
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw.replace(/^```(json)?|```$/g, "").trim()) as Record<string, unknown>;
+        if (typeof parsed.tool !== "string" || !(TOOL_NAMES as readonly string[]).includes(parsed.tool)) return null;
+        for (const k of Object.keys(parsed)) {
+            if (typeof parsed[k] === "string") parsed[k] = unmask(parsed[k] as string, map);
+        }
+        if (parsed.period && !(PERIODS as readonly string[]).includes(String(parsed.period))) delete parsed.period;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
 /** The user's last few questions (no answers - they may hold data), masked for sending to Gemini. */
 function recentQuestions(turns: ChatTurn[], roster: string): string {
     const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskPersonalData(t.content, roster));
@@ -406,10 +453,19 @@ async function geminiAnswer(name: string, toolJson: string, turns: ChatTurn[], r
         } catch {
             source = "";
         }
-        if (!source) return null; // nothing matched - keep the built-in "I can explain: ..." answer
+        // HR's own policy pages can also answer "how" questions (ticket process, payslip, POSH complaint...).
+        source = `${source}\n\n--- Company policies ---\n${String(await policyText())}`;
     }
-    const prompt = `Company text:\n<<<\n${source.slice(0, 20_000)}\n>>>\n\n${recentQuestions(turns, roster)}`;
-    return geminiGenerate(name === "get_policy" ? POLICY_SYSTEM : HELP_SYSTEM, prompt, 1024);
+    // Names, emails and phone numbers (e.g. POSH committee contacts) go out as tokens and come back real.
+    const map = newMaskMap();
+    const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskReversible(t.content, roster, map));
+    const lastQ = qs.pop() ?? "";
+    const prompt =
+        `Company text:\n<<<\n${maskReversible(source.slice(0, 20_000), roster, map)}\n>>>\n\n` +
+        (qs.length ? `Earlier questions (oldest first):\n${qs.map((x) => `- ${x}`).join("\n")}\n\n` : "") +
+        `Question: ${lastQ}\n\nKeep tokens like [[P1]] exactly as written - they are names, emails or phone numbers.`;
+    const ai = await geminiGenerate(name === "get_policy" ? POLICY_SYSTEM : HELP_SYSTEM, prompt, 1024);
+    return ai ? unmask(ai, map) : null;
 }
 
 /** Ask the assistant. `history` is the conversation so far; the last item must be the user's question. */
@@ -439,7 +495,11 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         // 1) Router: forced JSON, short reply (~30 tokens).
         let route: Record<string, unknown> = { tool: "none" };
         const isGreeting = GREETING_RE.test(last.content.trim());
-        if (!isGreeting) {
+        const geminiRouted = isGreeting ? null : await geminiRoute(turns, roster, ctx.today);
+        if (geminiRouted) {
+            route = geminiRouted;
+            toolsUsed.push("gemini-router");
+        } else if (!isGreeting) {
             try {
                 const routed = await ollamaChat(
                     [{ role: "system", content: ROUTER_SYSTEM }, { role: "user", content: context }, ...convo],
@@ -488,6 +548,17 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         if (/\b(hr|human resources?|admins?)\b/.test(q) && /\b(who|how many|kitne|kitni|kaun|list|contact|people|persons?|team|about)\b/.test(q) && !/\bpolic(y|ies)\b/.test(q)) {
             route = { tool: "get_hr_contacts" };
         }
+        if (/\b(balance|leaves? (left|remaining|baki|bachi|bache)|kitni (leave|chhutti|chutti)|remaining leaves?)\b/.test(q) && !/\bpolic(y|ies)\b/.test(q)) {
+            route = { ...route, tool: "get_leave_balance" };
+        }
+        // "my attendance", "mera attendance": the router sometimes drops the person - it's the user.
+        if (
+            ["get_employee_attendance", "get_leave_requests", "get_leave_balance"].includes(String(route.tool)) &&
+            (!route.employee || /^(mine|meri|mera|mere|mujhe|apna|apni)$/i.test(String(route.employee))) &&
+            /\b(my|me|mine|i|mera|meri|mere|mujhe|main|apna|apni)\b/.test(q)
+        ) {
+            route = { ...route, employee: "me" };
+        }
         if (/\b(how (do|can|to)|kaise|where (is|can|do)|kahan|steps?)\b/.test(q) && route.tool === "none") {
             route = { tool: "get_help" };
         }
@@ -495,7 +566,7 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         let answer = "";
         if (route.tool !== "none") {
             // 2) Real data, shown as a ready-made table.
-            const { name, args } = toolArgs(route, ctx.today, question);
+            const { name, args } = toolArgs(route, ctx.today, question, dateFromQuestion(last.content, ctx.today));
             toolsUsed.push(name);
             const run = await runTool(ctx, name, args);
             answer = run.display ?? NOT_SURE;

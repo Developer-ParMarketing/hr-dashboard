@@ -21,6 +21,7 @@ const TOPICS: HelpTopic[] = [
         steps: [
             "Open **Leave request** in the left menu (under Requests).",
             "Choose the type - **PL** (personal), **SL** (sick) or **CL** (casual) - and the dates.",
+            "Each type shows how many days you have **left** - you can't apply for more than that (pending requests count too).",
             "Add a short reason and submit. Your manager / approver gets it for approval.",
             "Once approved, the leave shows on your attendance automatically.",
         ],
@@ -138,6 +139,27 @@ const TOPICS: HelpTopic[] = [
             "Open **Salary** -> monthly sheet -> calculate payroll, then check results and export.",
         ],
         note: "Pay slip, Tax information, TDS and Form 16 pages are coming soon.",
+    },
+    {
+        title: "Leave not approved yet / stuck",
+        keywords: ["not approved", "pending", "stuck", "approve", "approval", "manager not", "ticket", "reject", "rejected", "approve nahi", "approve nhi"],
+        who: "every employee",
+        steps: [
+            "Open **Leave request -> My requests** and check the status and **Pending with** (who has to approve it).",
+            "Remind that person (your manager). If your manager is away, **HR / admin can approve or reject it** directly.",
+            "If it is still not approved, raise a ticket with HR: email **hr@parmarketing.agency** with your name, code and the leave dates.",
+            "If it was rejected, the reason is shown in **My requests**; you can apply again with the right type or dates.",
+        ],
+    },
+    {
+        title: "Leave balance",
+        keywords: ["balance", "leave balance", "leaves left", "remaining", "kitni leave", "kitni chhutti"],
+        who: "every employee",
+        steps: [
+            "Open **Leave request -> Balance** to see PL, SL and CL for this year: total, used, pending and left.",
+            "Or ask me: \"how many leaves do I have left?\"",
+        ],
+        note: "Yearly: 12 PL, 6 SL, 6 CL (half credited in January, half in July). Unused leave does not carry to the next year.",
     },
     {
         title: "Pay slip, tax, TDS and Form 16",

@@ -41,6 +41,18 @@ import { startNotificationScheduler, startOffboardingScheduler } from "./notify/
 import { startEsslSyncScheduler } from "./essl/schedule.js";
 import { handleEsslStatus, handleEsslSync } from "./essl/routes.js";
 import { handleChat, handleChatStatus } from "./chat/routes.js";
+
+import {
+  handleAddPolicySection,
+  handleDeletePolicySection,
+  handleHidePolicySection,
+  handleImportPolicyDocument,
+  handleListPolicies,
+  handleManagePolicies,
+  handleMovePolicySection,
+  handleUpdatePolicySection,
+} from "./policies/routes.js";
+
 import { buildSavedMonthGrid, persistLeaveWfhChanges } from "./persist/applyLeaveWfh.js";
 import { authSecret, requireAuth, requireAdmin, requireEditor, type AuthedRequest } from "./auth/middleware.js";
 import { requireHolidayManager } from "./holidays/guard.js";
@@ -515,6 +527,16 @@ app.get("/api/chat/status", requireAuth, (req, res) => {
 app.post("/api/chat", requireAuth, (req, res) => {
   void handleChat(req, res);
 });
+// Policies: everyone reads, HR/admin edit (Policies page -> Manage)
+app.get("/api/policies", requireAuth, (req, res) => { void handleListPolicies(req, res); });
+app.get("/api/policies/manage", requireEditor, (req, res) => { void handleManagePolicies(req, res); });
+app.post("/api/policies/sections", requireEditor, (req, res) => { void handleAddPolicySection(req, res); });
+app.put("/api/policies/sections/:id", requireEditor, (req, res) => { void handleUpdatePolicySection(req, res); });
+app.post("/api/policies/sections/:id/hide", requireEditor, (req, res) => { void handleHidePolicySection(req, res); });
+app.post("/api/policies/sections/:id/move", requireEditor, (req, res) => { void handleMovePolicySection(req, res); });
+app.delete("/api/policies/sections/:id", requireEditor, (req, res) => { void handleDeletePolicySection(req, res); });
+app.post("/api/policies/import", requireEditor, uploadEmployeeDoc.single("file"), (req, res) => { void handleImportPolicyDocument(req, res); });
+
 app.post(
   "/api/attendance/process",
   requireEditor,

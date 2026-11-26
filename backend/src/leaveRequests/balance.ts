@@ -290,9 +290,20 @@ export async function assertLeaveBalanceForApproval(input: {
   startDate: string;
   endDate: string;
   asOf?: Date;
+  /** When applying: also count leave that is still pending, so people cannot book more than they have. */
+  includePending?: boolean;
 }): Promise<void> {
   const year = Number(input.startDate.slice(0, 4));
   const { annual: used, half } = await loadApprovedLeaveUsageForEmployee(input.employeeId, year);
+  if (input.includePending) {
+    const pending = await loadLeaveUsageForEmployeeByStatus(input.employeeId, year, "pending");
+    for (const t of ["pl", "sl", "cl"] as const) {
+      used[t] += pending.annual[t];
+      half.h1[t] += pending.half.h1[t];
+      half.h2[t] += pending.half.h2[t];
+    }
+  }
+  const pendingNote = input.includePending ? " (pending requests count too)" : "";
   const incoming = countNewDaysByHalf(input.startDate, input.endDate, year);
   const type = input.leaveType;
   const asOf = input.asOf ?? new Date();
@@ -304,7 +315,7 @@ export async function assertLeaveBalanceForApproval(input: {
     const remaining = Math.max(0, annualCap - used[type]);
     throw Object.assign(
       new Error(
-        `Not enough ${type.toUpperCase()} balance for ${year} (${remaining} day(s) left of ${annualCap}; this request needs ${incoming.annual}).`,
+        `Not enough ${type.toUpperCase()} balance for ${year} (${remaining} day(s) left of ${annualCap}; this request needs ${incoming.annual})${pendingNote}.`,
       ),
       { status: 400 },
     );
@@ -314,7 +325,7 @@ export async function assertLeaveBalanceForApproval(input: {
     const remaining = Math.max(0, firstHalfCap - half.h1[type]);
     throw Object.assign(
       new Error(
-        `Not enough ${type.toUpperCase()} for Jan-Jun ${year} (${remaining} day(s) left of ${firstHalfCap}; ${incoming.h1} day(s) fall in Jan-Jun).`,
+        `Not enough ${type.toUpperCase()} for Jan-Jun ${year} (${remaining} day(s) left of ${firstHalfCap}; ${incoming.h1} day(s) fall in Jan-Jun)${pendingNote}.`,
       ),
       { status: 400 },
     );
@@ -333,7 +344,7 @@ export async function assertLeaveBalanceForApproval(input: {
     if (incoming.h2 > poolLeft) {
       throw Object.assign(
         new Error(
-          `Not enough ${type.toUpperCase()} for Jul-Dec ${year} (${Math.max(0, poolLeft)} day(s left in the Jul-Dec pool including unused Jan-Jun; ${incoming.h2} requested in Jul-Dec).`,
+          `Not enough ${type.toUpperCase()} for Jul-Dec ${year} (${Math.max(0, poolLeft)} day(s) left in the Jul-Dec pool including unused Jan-Jun; ${incoming.h2} requested in Jul-Dec)${pendingNote}.`,
         ),
         { status: 400 },
       );

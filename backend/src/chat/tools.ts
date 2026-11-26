@@ -12,6 +12,7 @@ import type { AuthUser } from "../auth/users.js";
 import type { OllamaToolSpec } from "./ollama.js";
 import { policySections, policyText } from "./policies.js";
 import { findHelp, helpTopicTitles } from "./help.js";
+import { loadLeaveBalancePayload } from "../leaveRequests/balance.js";
 
 export type ChatContext = {
     user: AuthUser;
@@ -103,14 +104,21 @@ function scopeLabel(ctx: ChatContext): string {
 }
 
 /** Find one employee (code, name, or "me") inside the user's scope. */
+/** Words that mean "me" (English + Hindi/Hinglish). */
+const SELF_RE = /^(me|my|mine|myself|self|i|mera|meri|mere|mujhe|main|mai|apna|apni|apne|khud)$/i;
+
 async function resolveEmployee(
     ctx: ChatContext,
     ref: unknown,
 ): Promise<{ emp: EmpRow } | { error: string; candidates?: Array<{ code: string; name: string }> }> {
     const raw = str(ref);
-    if (!raw || /^(me|my|myself|self|i)$/i.test(raw)) {
+    if (!raw || SELF_RE.test(raw) || raw.toLowerCase() === ctx.user.email.toLowerCase()) {
         if (ctx.selfEmployeeId == null) {
-            return { error: "Your login is not linked to an employee record (work email must match)." };
+            return {
+                error:
+                    `Your login (${ctx.user.email}) is not linked to an employee record, so there is no personal attendance or leave for it. ` +
+                    `Ask about a person by name, e.g. "Ganesh Sardar attendance this month" - or ask HR to use your work email in the employee record.`,
+            };
         }
         const rows = await query<EmpRow>(`${EMP_SELECT} WHERE e.id = $1`, [ctx.selfEmployeeId]);
         return rows[0] ? { emp: rows[0] } : { error: "Employee record not found." };
@@ -637,6 +645,23 @@ async function getPolicy(_ctx: ChatContext, args: ToolArgs) {
     return { topic, brief, ...(await policySections(topic)) };
 }
 
+/** PL / SL / CL balance for a person (default: the user), same numbers as the Leave request -> Balance tab. */
+async function getLeaveBalance(ctx: ChatContext, args: ToolArgs) {
+    const found = await resolveEmployee(ctx, args.employee ?? "me");
+    if ("error" in found) return found;
+    const year = Number(str(args.year)) || Number(ctx.today.slice(0, 4));
+    const b = await loadLeaveBalancePayload(found.emp.id, year);
+    const types = (["pl", "sl", "cl"] as const).map((t) => ({
+        type: t.toUpperCase(),
+        total: b.allowance[t],
+        used: b.used[t],
+        pending: b.requested[t],
+        left: b.remaining[t],
+        canBook: Math.max(0, b.remaining[t] - b.requested[t]),
+    }));
+    return { employee: empBrief(found.emp, ctx.today), self: found.emp.id === ctx.selfEmployeeId, year, types };
+}
+
 const IMPLS: Record<string, ToolImpl> = {
     find_employees: findEmployees,
     get_employee_attendance: getEmployeeAttendance,
@@ -648,6 +673,7 @@ const IMPLS: Record<string, ToolImpl> = {
     get_policy: getPolicy,
     list_teams: listTeams,
     get_hr_contacts: getHrContacts,
+    get_leave_balance: getLeaveBalance,
     get_today_overview: getTodayOverview,
     get_help: getHelp,
 };
@@ -692,6 +718,7 @@ export const TOOL_SPECS: OllamaToolSpec[] = [
     tool("get_policy", "Company / attendance policy text.", { topic: S("string", "e.g. late, leave, wfh") }),
     tool("list_teams", "Teams, their managers and members.", { team: S("string") }),
     tool("get_hr_contacts", "Who is HR / admin in the portal and how many.", {}),
+    tool("get_leave_balance", "PL/SL/CL leave balance (used, pending, left).", { employee: S("string"), year: S("string") }),
     tool("get_today_overview", "Today's attendance counts.", {}),
     tool("get_help", "How to use the HR portal.", { question: S("string") }),
 ];
@@ -805,14 +832,32 @@ function displayFor(name: string, r: Obj): string | null {
             return `I found **${list.length} people**: ${nameList(list.map((e) => `${e.name} (${e.code})`))}.\n\n` +
                 table(["Code", "Name", "Team", "Manager", "Shift start"], list.map((e) => [e.code, e.name, e.team, e.manager, e.shiftStartsAt]));
         }
+        case "get_leave_balance": {
+            const emp = r.employee as Obj;
+            const types = r.types as Obj[];
+            const who = r.self ? "You have" : `**${emp.name}** (${emp.code}) has`;
+            const parts = types.map((t) => `**${t.canBook} ${t.type}**`);
+            const pending = types.filter((t) => Number(t.pending) > 0).map((t) => `${t.pending} ${t.type}`);
+            return (
+                `${who} ${nameList(parts, 3)} left to book in ${r.year}${pending.length ? ` (after ${nameList(pending, 3)} waiting for approval)` : ""}.\n\n` +
+                table(["Type", "Yearly", "Used", "Pending", "Left to book"], types.map((t) => [t.type, t.total, t.used, t.pending, t.canBook])) +
+                "\n\nLeave beyond these days can't be applied. Unused leave does not carry to next year."
+            );
+        }
         case "get_hr_contacts": {
             const hr = r.hr as Obj[];
             const admins = r.admins as Obj[];
             const who = (p: Obj) => `${p.name}${p.code ? ` (${p.code})` : ""}`;
             if (!hr.length && !admins.length) return "No HR accounts are set up in the portal yet.";
-            const intro = hr.length
-                ? `There ${hr.length === 1 ? "is" : "are"} **${plural(hr.length, "HR person", "HR people")}**: ${nameList(hr.map((p) => `**${who(p)}**`), 10)}.`
-                : "No one has the HR role yet.";
+            if (!hr.length) {
+                // No separate HR role yet - HR work is done from the admin accounts.
+                const people = admins.filter((p) => p.code);
+                const shared = admins.filter((p) => !p.code);
+                const intro = `HR is handled by **${plural(admins.length, "account")}** with full (admin) access: ${nameList(admins.map((p) => `**${who(p)}**`), 10)}.`;
+                const note = people.length && shared.length ? ` ${nameList(shared.map((p) => String(p.name)), 5)} ${shared.length === 1 ? "is a shared login" : "are shared logins"}, not a separate person.` : "";
+                return `${intro}${note}\n\n` + table(["Name", "Access", "Email"], admins.map((p) => [who(p), "HR / Admin", p.email]));
+            }
+            const intro = `There ${hr.length === 1 ? "is" : "are"} **${plural(hr.length, "HR person", "HR people")}**: ${nameList(hr.map((p) => `**${who(p)}**`), 10)}.`;
             const adm = admins.length ? ` ${plural(admins.length, "admin")} also ${admins.length === 1 ? "has" : "have"} full access: ${nameList(admins.map(who), 10)}.` : "";
             return `${intro}${adm}\n\n` + table(["Name", "Role", "Email"], [...hr.map((p) => [who(p), "HR", p.email]), ...admins.map((p) => [who(p), "Admin", p.email])]);
         }
@@ -895,7 +940,11 @@ function displayFor(name: string, r: Obj): string | null {
             switch (filter) {
                 case "late":
                     if (!list.length) {
-                        if (!Number(c.punchedIn)) return `Nobody has punched in ${when} yet, so there are no late marks yet.${note}`;
+                        if (!Number(c.punchedIn)) {
+                            return r.isToday !== false
+                                ? `Nobody has punched in ${when} yet, so there are no late marks yet.${note}`
+                                : `There is no punch data ${when} (holiday, weekly off, or the machine data didn't come in), so no late marks.`;
+                        }
                         return `Good news - nobody has been late ${when}${sofar}. ${c.punchedIn} of ${r.totalEmployees} people have punched in.${note}`;
                     }
                     return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "was" : "were"} late ${when}${sofar}: ${names((x) => `${x.name} (${x.lateMinutes ?? "?"} min)`)}.\n\n${tableMd()}${note}`;

@@ -36,9 +36,11 @@ import {
 import { isManagementRequestOversight } from "../employeeRequests/workflow.js";
 import {
   buildDashboardNotificationsPayload,
+  notificationsMeta,
   type DashboardNotification,
   type DashboardNotificationsMeta,
 } from "./dashboardNotifications.js";
+import { listPolicyChanges } from "../policies/store.js";
 import {
   resolveDashboardEmployeeScope,
   resolveDashboardView,
@@ -129,12 +131,12 @@ export type DashboardSummary = {
     weeklyTotal: number;
     weeklyApproved: number;
     weeklyPending: number;
-  /** Distinct week_start values in scope; complete = all employee rows for that week approved/locked. */
-  weeklyCalendarWeeksTotal: number;
-  weeklyCalendarWeeksComplete: number;
-  /** One entry per calendar week in the filter period (week-wise approval progress). */
-  weeklyWeeks: DashboardWeeklyWeekSummary[];
-  teamLateMarks?: number | null;
+    /** Distinct week_start values in scope; complete = all employee rows for that week approved/locked. */
+    weeklyCalendarWeeksTotal: number;
+    weeklyCalendarWeeksComplete: number;
+    /** One entry per calendar week in the filter period (week-wise approval progress). */
+    weeklyWeeks: DashboardWeeklyWeekSummary[];
+    teamLateMarks?: number | null;
     teamBaselineInsight?: DashboardBaselineInsight | null;
   };
   salary: {
@@ -857,22 +859,22 @@ function buildPayrollChecklist(input: {
       detail: peopleProfileDone
         ? `${peopleReadyCount} of ${rosterTotal} employee${rosterTotal === 1 ? "" : "s"} payroll-ready (base, email/login, DOJ, register).`
         : [
-            `${peopleReadyCount}/${rosterTotal} payroll-ready`,
-            !peopleBaseDone
-              ? `${missingBase} missing base salary (In Hand / PF / PT)`
-              : null,
-            !peopleDojDone
-              ? `${missingDoj} active employee${missingDoj === 1 ? "" : "s"} missing date of joining`
-              : null,
-            !peopleEmailDone
-              ? `${unlinkedEmail} missing work email or dashboard login`
-              : null,
-            attendance.hasData && !peopleRegisterDone
-              ? `${absentFromRegister} active in People but not in this month’s attendance register`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ") || "Review people data before calculating.",
+          `${peopleReadyCount}/${rosterTotal} payroll-ready`,
+          !peopleBaseDone
+            ? `${missingBase} missing base salary (In Hand / PF / PT)`
+            : null,
+          !peopleDojDone
+            ? `${missingDoj} active employee${missingDoj === 1 ? "" : "s"} missing date of joining`
+            : null,
+          !peopleEmailDone
+            ? `${unlinkedEmail} missing work email or dashboard login`
+            : null,
+          attendance.hasData && !peopleRegisterDone
+            ? `${absentFromRegister} active in People but not in this month’s attendance register`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Review people data before calculating.",
       status: peopleProfileDone ? "done" : "todo",
       href: input.isAdmin ? "/admin?section=people" : "/salary?section=sheet",
       actionLabel: peopleProfileDone ? "Open People" : "Fix in People",
@@ -884,11 +886,10 @@ function buildPayrollChecklist(input: {
       detail: !sheetReady
         ? "Load attendance first; the sheet builds from people + attendance."
         : sheetErrors > 0
-          ? `${sheetErrors} row${sheetErrors === 1 ? "" : "s"} have errors${
-              blockedByWeeks
-                ? ` (${salary.blockedByApproval} blocked until weeks are approved)`
-                : ""
-            }. Fix before calculate.`
+          ? `${sheetErrors} row${sheetErrors === 1 ? "" : "s"} have errors${blockedByWeeks
+            ? ` (${salary.blockedByApproval} blocked until weeks are approved)`
+            : ""
+          }. Fix before calculate.`
           : blockedByWeeks
             ? `${salary.blockedByApproval} row${salary.blockedByApproval === 1 ? "" : "s"} still wait on weekly approval.`
             : `${salary.matchedRows} of ${salary.totalRows} rows ready to calculate.`,
@@ -906,7 +907,7 @@ function buildPayrollChecklist(input: {
       title: "Calculate payroll",
       detail: salary.attendanceStale
         ? salary.staleMessage ??
-          "Attendance changed after the last run - recalculate so results match the register."
+        "Attendance changed after the last run - recalculate so results match the register."
         : calcDone
           ? salary.totalRows > 0
             ? `Payroll saved for ${salary.savedPayrollCount} of ${salary.totalRows} on the salary sheet.`
@@ -1096,15 +1097,44 @@ export function canUseDashboardDateFilters(user: AuthUser): boolean {
   return isManagementRequestOversight(user);
 }
 
+/** "Policy updated" items for the bell: changes HR made in the last 14 days (newest 3). */
+async function policyUpdateNotifications(): Promise<DashboardNotification[]> {
+  const changes = (await listPolicyChanges(20, 14)).filter((c) => c.action === "added" || c.action === "updated");
+  const seen = new Set<string>();
+  const out: DashboardNotification[] = [];
+  for (const c of changes) {
+    const key = `${c.docId}:${c.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const when = new Date(c.changedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+    out.push({
+      id: `policy-${c.id}`,
+      tier: "normal",
+      priorityScore: 30,
+      rank: 0,
+      title: c.action === "added" ? `New policy: ${c.title}` : `Policy updated: ${c.title}`,
+      message: `${c.docId === "company" ? "Company" : "Attendance"} policy ${c.action === "added" ? "added" : "changed"} on ${when}. Please read it.`,
+      href: "/policies",
+      actionLabel: "Read policy",
+      moduleId: "policies",
+      source: "action",
+    });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 export async function getDashboardNotifications(input: Parameters<typeof getDashboardSummary>[0]): Promise<{
   notifications: DashboardNotification[];
   notificationsMeta: DashboardNotificationsMeta;
 }> {
   const summary = await getDashboardSummary(input);
-  return {
-    notifications: summary.notifications,
-    notificationsMeta: summary.notificationsMeta,
-  };
+  const policy = await policyUpdateNotifications().catch(() => [] as DashboardNotification[]);
+  if (policy.length === 0) {
+    return { notifications: summary.notifications, notificationsMeta: summary.notificationsMeta };
+  }
+  const notifications = [...summary.notifications, ...policy].map((n, i) => ({ ...n, rank: i + 1 }));
+  return { notifications, notificationsMeta: notificationsMeta(notifications) };
 }
 
 export async function listDashboardEmployeeFilterOptions(
@@ -1300,16 +1330,16 @@ export async function getDashboardSummary(input: {
 
   const payrollMonth = period.isSingleCalendarMonth
     ? {
-        year: Number.parseInt(period.dateFrom.slice(0, 4), 10),
-        month: Number.parseInt(period.dateFrom.slice(5, 7), 10),
-      }
+      year: Number.parseInt(period.dateFrom.slice(0, 4), 10),
+      month: Number.parseInt(period.dateFrom.slice(5, 7), 10),
+    }
     : null;
 
   const employeeId =
     view === "employee"
       ? ((restrictIds?.length ?? 0) > 0
-          ? restrictIds![0]!
-          : await findEmployeeIdByUserEmail(input.user.email))
+        ? restrictIds![0]!
+        : await findEmployeeIdByUserEmail(input.user.email))
       : null;
 
   const loadSalaryBlock = view === "operations" && payrollMonth != null;
@@ -1327,9 +1357,9 @@ export async function getDashboardSummary(input: {
       loadPendingApprovalCounts(input.user, restrictIds),
       loadPersonalRequests
         ? loadMyRequestCounts(input.user.id, {
-            dateFrom: period.dateFrom,
-            dateTo: period.dateTo,
-          })
+          dateFrom: period.dateFrom,
+          dateTo: period.dateTo,
+        })
         : Promise.resolve(null),
       view === "employee" && payrollMonth
         ? loadEmployeeSnapshot(employeeId, payrollMonth.year, payrollMonth.month)
@@ -1367,10 +1397,10 @@ export async function getDashboardSummary(input: {
   const people =
     view === "operations" || view === "manager"
       ? await loadPeopleStats(company, restrictIds, {
-          dateFrom: period.dateFrom,
-          dateTo: period.dateTo,
-          attendanceLoaded: attendance.hasData,
-        })
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        attendanceLoaded: attendance.hasData,
+      })
       : null;
 
   const teams = view === "operations" ? await loadTeamHealthStats() : null;
@@ -1438,11 +1468,11 @@ export async function getDashboardSummary(input: {
   const checklist =
     view === "operations" && payrollMonth != null
       ? buildPayrollChecklist({
-          attendance: attendanceOut,
-          salary: salaryForActions,
-          people,
-          isAdmin,
-        })
+        attendance: attendanceOut,
+        salary: salaryForActions,
+        people,
+        isAdmin,
+      })
       : null;
 
   let attendanceEmployeeRoster: DashboardAttendanceEmployeeRow[] | null = null;

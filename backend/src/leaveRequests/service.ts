@@ -161,6 +161,7 @@ export async function createLeaveRequest(
     leaveType,
     startDate,
     endDate,
+    includePending: true,
   });
 
   const applyWarnings = await buildLeaveApplyWarnings({
@@ -260,7 +261,8 @@ export async function listApprovalInboxForUser(user: AuthUser) {
      WHERE r.status = 'pending'
        AND (
          (r.approval_tier = 'manager' AND r.assigned_approver_user_id = $1)
-         OR ($2::boolean AND r.approval_tier = 'leadership_hr')
+         -- HR / admin see every pending request, including ones waiting on a manager
+         OR $2::boolean
        )
      ORDER BY r.start_date ASC, r.id ASC`,
     [user.id, isExecutiveLeaveApprover(user)],
@@ -369,7 +371,12 @@ async function getLeaveRequestById(id: number): Promise<LeaveRequestRow | null> 
   return row ?? null;
 }
 
+/**
+ * Assigned manager decides manager-tier requests. HR / admin (executive approvers) can also
+ * approve or reject them - e.g. when the manager is on leave or not responding.
+ */
 function userCanDecideLeaveRequest(user: AuthUser, row: LeaveRequestRow): boolean {
+  if (row.status === "pending" && row.approval_tier === "manager" && isExecutiveLeaveApprover(user)) return true;
   return userCanDecideRequest(user, row);
 }
 

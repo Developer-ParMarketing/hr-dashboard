@@ -32,9 +32,17 @@ let pausedUntil = 0;
 
 type Attempt = { text: string | null; retry: boolean };
 
-async function callModel(model: string, key: string, system: string, prompt: string, maxTokens: number): Promise<Attempt> {
+async function callModel(
+    model: string,
+    key: string,
+    system: string,
+    prompt: string,
+    maxTokens: number,
+    json: boolean,
+    timeoutMs: number,
+): Promise<Attempt> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), geminiTimeout());
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
     try {
         const res = await fetch(
@@ -45,7 +53,11 @@ async function callModel(model: string, key: string, system: string, prompt: str
                 body: JSON.stringify({
                     systemInstruction: { parts: [{ text: system }] },
                     contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+                    generationConfig: {
+                        temperature: json ? 0 : 0.3,
+                        maxOutputTokens: maxTokens,
+                        ...(json ? { responseMimeType: "application/json" } : {}),
+                    },
                 }),
                 signal: controller.signal,
             },
@@ -73,7 +85,7 @@ async function callModel(model: string, key: string, system: string, prompt: str
         return { text: text || null, retry: !text };
     } catch (e) {
         const aborted = e instanceof Error && e.name === "AbortError";
-        console.error(`[chat] Gemini ${model} ${aborted ? `timed out after ${geminiTimeout()} ms` : `failed: ${e instanceof Error ? e.message : e}`}`);
+        console.error(`[chat] Gemini ${model} ${aborted ? `timed out after ${timeoutMs} ms` : `failed: ${e instanceof Error ? e.message : e}`}`);
         return { text: null, retry: true };
     } finally {
         clearTimeout(timer);
@@ -85,11 +97,16 @@ async function callModel(model: string, key: string, system: string, prompt: str
  * Returns the text, or null on any problem - the caller then shows the normal built-in answer,
  * so the chat never breaks because of Gemini.
  */
-export async function geminiGenerate(system: string, prompt: string, maxTokens = 1024): Promise<string | null> {
+export async function geminiGenerate(
+    system: string,
+    prompt: string,
+    maxTokens = 1024,
+    opts: { json?: boolean; models?: string[]; timeoutMs?: number } = {},
+): Promise<string | null> {
     const key = process.env.GEMINI_API_KEY?.trim();
     if (!key || Date.now() < pausedUntil) return null;
-    for (const model of geminiModels()) {
-        const { text, retry } = await callModel(model, key, system, prompt, maxTokens);
+    for (const model of opts.models ?? geminiModels()) {
+        const { text, retry } = await callModel(model, key, system, prompt, maxTokens, opts.json === true, opts.timeoutMs ?? geminiTimeout());
         if (text) return text;
         if (!retry) return null;
     }
@@ -128,4 +145,51 @@ export function maskPersonalData(text: string, roster: string): string {
         out = out.replace(new RegExp(`\\b${safe}\\b`, "gi"), "a colleague");
     }
     return out;
+}
+/**
+ * Reversible masking: names / codes / emails / phones become tokens like [[P1]] before text goes to
+ * Google, and are put back in the reply with unmask(). The same map is shared across texts so one
+ * person always gets the same token.
+ */
+export type MaskMap = { toToken: Map<string, string>; toText: Map<string, string> };
+
+export function newMaskMap(): MaskMap {
+    return { toToken: new Map(), toText: new Map() };
+}
+
+function tokenFor(map: MaskMap, original: string): string {
+    const key = original.toLowerCase();
+    let t = map.toToken.get(key);
+    if (!t) {
+        t = `[[P${map.toToken.size + 1}]]`;
+        map.toToken.set(key, t);
+        map.toText.set(t, original);
+    }
+    return t;
+}
+
+export function maskReversible(text: string, roster: string, map: MaskMap): string {
+    let out = text
+        .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, (m) => tokenFor(map, m))
+        .replace(/\+?\d[\d\s-]{8,}\d/g, (m) => (m.replace(/\D/g, "").length >= 10 ? tokenFor(map, m) : m));
+    const words = new Set<string>();
+    for (const line of roster.split("\n")) {
+        const [code, name] = line.split("|").map((x) => x?.trim() ?? "");
+        if (code) words.add(code);
+        if (name) {
+            words.add(name);
+            for (const part of name.split(/\s+/)) {
+                if (part.length >= 3 && !COMMON_WORDS.has(part.toLowerCase())) words.add(part);
+            }
+        }
+    }
+    for (const w of [...words].sort((a, b) => b.length - a.length)) {
+        const safe = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        out = out.replace(new RegExp(`(?<![\\w\\[])${safe}(?![\\w\\]])`, "gi"), (m) => tokenFor(map, m));
+    }
+    return out;
+}
+
+export function unmask(text: string, map: MaskMap): string {
+    return text.replace(/\[\[P\d+\]\]/g, (t) => map.toText.get(t) ?? t);
 }
