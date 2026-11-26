@@ -4,39 +4,41 @@
  * Attendance / leave / employee answers never go to Gemini.
  *
  * Env:
- *   GEMINI_API_KEY=...            (from aistudio.google.com; leave empty to switch Gemini off)
- *   GEMINI_MODEL=gemini-flash-latest   (optional; copy another model id from AI Studio if you want)
- *   GEMINI_TIMEOUT_MS=15000       (optional)
+ *   GEMINI_API_KEY=...       (from aistudio.google.com; leave empty to switch Gemini off)
+ *   GEMINI_MODEL=gemini-flash-lite-latest,gemini-flash-latest
+ *                            (optional; comma list - tried in order, next one if busy/slow)
+ *   GEMINI_TIMEOUT_MS=8000   (optional; per model attempt)
  */
 
 export function geminiEnabled(): boolean {
     return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
-function geminiModel(): string {
-    return process.env.GEMINI_MODEL?.trim() || "gemini-flash-latest";
+function geminiModels(): string[] {
+    const list = (process.env.GEMINI_MODEL ?? "")
+        .split(",")
+        .map((m) => m.trim())
+        .filter(Boolean);
+    return list.length ? list : ["gemini-flash-lite-latest", "gemini-flash-latest"];
 }
 
 function geminiTimeout(): number {
     const n = Number(process.env.GEMINI_TIMEOUT_MS);
-    return Number.isFinite(n) && n > 0 ? n : 15_000;
+    return Number.isFinite(n) && n > 0 ? n : 8_000;
 }
 
 /** After a 429 (free limit used up) we stop calling Gemini for a while and use the normal answers. */
 let pausedUntil = 0;
 
-/**
- * Ask Gemini. Returns the text, or null on any problem (no key, timeout, limit, error) -
- * the caller then shows the normal built-in answer, so the chat never breaks because of Gemini.
- */
-export async function geminiGenerate(system: string, prompt: string, maxTokens = 1024): Promise<string | null> {
-    const key = process.env.GEMINI_API_KEY?.trim();
-    if (!key || Date.now() < pausedUntil) return null;
+type Attempt = { text: string | null; retry: boolean };
+
+async function callModel(model: string, key: string, system: string, prompt: string, maxTokens: number): Promise<Attempt> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), geminiTimeout());
+    const started = Date.now();
     try {
         const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
             {
                 method: "POST",
                 headers: { "content-type": "application/json", "x-goog-api-key": key },
@@ -50,12 +52,14 @@ export async function geminiGenerate(system: string, prompt: string, maxTokens =
         );
         if (res.status === 429) {
             pausedUntil = Date.now() + 10 * 60_000;
-            console.warn("[chat] Gemini free limit reached - using built-in answers for 10 minutes");
-            return null;
+            console.warn(`[chat] Gemini ${model}: free limit reached - built-in answers for 10 minutes`);
+            return { text: null, retry: false };
         }
         if (!res.ok) {
-            console.error(`[chat] Gemini error ${res.status}: ${(await res.text()).slice(0, 300)}`);
-            return null;
+            const body = (await res.text()).replace(/\s+/g, " ").slice(0, 200);
+            console.error(`[chat] Gemini ${model} error ${res.status}: ${body}`);
+            // 503 overloaded / 500 / 404 unknown model -> try the next model
+            return { text: null, retry: res.status >= 500 || res.status === 404 };
         }
         const data = (await res.json()) as {
             candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
@@ -65,26 +69,44 @@ export async function geminiGenerate(system: string, prompt: string, maxTokens =
             .map((p) => p.text)
             .join("")
             .trim();
-        return text || null;
+        console.log(`[chat] Gemini ${model} answered in ${Date.now() - started} ms`);
+        return { text: text || null, retry: !text };
     } catch (e) {
-        console.error("[chat] Gemini request failed:", e instanceof Error ? e.message : e);
-        return null;
+        const aborted = e instanceof Error && e.name === "AbortError";
+        console.error(`[chat] Gemini ${model} ${aborted ? `timed out after ${geminiTimeout()} ms` : `failed: ${e instanceof Error ? e.message : e}`}`);
+        return { text: null, retry: true };
     } finally {
         clearTimeout(timer);
     }
 }
 
 /**
- * Remove personal data before anything is sent to Google:
- * employee names and codes from the roster, emails and phone numbers.
- * `roster` lines look like "PMPL28 | Ganesh Sardar | Product".
+ * Ask Gemini. Tries each model in GEMINI_MODEL in order (next one when busy / slow / unknown).
+ * Returns the text, or null on any problem - the caller then shows the normal built-in answer,
+ * so the chat never breaks because of Gemini.
  */
+export async function geminiGenerate(system: string, prompt: string, maxTokens = 1024): Promise<string | null> {
+    const key = process.env.GEMINI_API_KEY?.trim();
+    if (!key || Date.now() < pausedUntil) return null;
+    for (const model of geminiModels()) {
+        const { text, retry } = await callModel(model, key, system, prompt, maxTokens);
+        if (text) return text;
+        if (!retry) return null;
+    }
+    return null;
+}
+
 /** First names that are also normal words in questions ("late mark") - never masked on their own. */
 const COMMON_WORDS = new Set([
     "mark", "will", "joy", "hope", "grace", "rose", "ray", "late", "leave", "half", "day", "shift", "team",
     "sales", "design", "product", "policy", "dev", "content", "ads", "seo",
 ]);
 
+/**
+ * Remove personal data before anything is sent to Google:
+ * employee names and codes from the roster, emails and phone numbers.
+ * `roster` lines look like "PMPL28 | Ganesh Sardar | Product".
+ */
 export function maskPersonalData(text: string, roster: string): string {
     let out = text
         .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[email]")
