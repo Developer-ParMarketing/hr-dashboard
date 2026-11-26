@@ -249,7 +249,19 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
     switch (name) {
         case "get_employee_attendance": {
             const [from, to] = range();
-            return { name, args: { employee: str(route.employee) ?? "me", from, to } };
+            // "kab kab late aya", "absent days", "WFH days" -> show only those days
+            const only = /\b(late|lates|der|der se)\b/i.test(question)
+                ? "late"
+                : /\b(absent|absence|absences|nahi aya|nahi aaya|nahi aayi)\b/i.test(question)
+                    ? "absent"
+                    : /\b(wfh|work from home)\b/i.test(question)
+                        ? "wfh"
+                        : /\b(half day|half days|half-day)\b/i.test(question)
+                            ? "half_day"
+                            : /\b(leave|leaves|chhutti|chutti)\b/i.test(question)
+                                ? "leave"
+                                : undefined;
+            return { name, args: { employee: str(route.employee) ?? "me", from, to, only } };
         }
         case "get_attendance_on_date": {
             const date = period === "yesterday" ? r.yesterday : custom && isIso(route.from) ? route.from : r.today;
@@ -278,7 +290,8 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
         case "get_holidays":
             return { name, args: { year: str(route.year) } };
         case "get_policy":
-            return { name, args: { topic: str(route.topic) } };
+            // Short answer by default (like a chat); the full policy only when asked ("full", "details", "poora").
+            return { name, args: { topic: str(route.topic), brief: !FULL_RE.test(question) } };
         case "list_teams":
             return { name, args: { team: str(route.team) ?? str(route.query) } };
         case "get_today_overview":
@@ -289,6 +302,12 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
             return { name, args: {} };
     }
 }
+
+/** "make it short", "summary", "in short", "chhota karo" */
+const BRIEF_RE = /\b(short|shorter|summary|summarize|summarise|summery|summeries|summaries|summeiries|brief|briefly|chhota|chota|kam me|in short|tldr|quick)\b/i;
+
+/** "full policy", "in detail", "all rules", "poora batao" */
+const FULL_RE = /\b(full|fully|detail|details|detailed|complete|all rules|every rule|explain all|poora|pura|puri|poori|sab rules|sabhi rules)\b/i;
 
 /** A small-talk reply that contains times or a table is made-up data - never show it. */
 function looksLikeInventedData(text: string): boolean {
@@ -358,6 +377,29 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
             console.error("[chat] router reply was not valid JSON:", e);
         }
 
+        // "make it short" / "summary" on its own -> answer the previous question again, briefly.
+        let question = last.content;
+        if ((BRIEF_RE.test(last.content) || FULL_RE.test(last.content)) && last.content.split(/\s+/).length <= 8) {
+            const prevUser = [...turns].reverse().find((t, i) => i > 0 && t.role === "user");
+            let rerouted = false;
+            if (prevUser && (route.tool === "none" || route.tool === "get_help")) {
+                rerouted = true;
+                try {
+                    const again = await ollamaChat(
+                        [{ role: "system", content: ROUTER_SYSTEM }, { role: "user", content: context }, { role: "user", content: prevUser.content }],
+                        undefined,
+                        ROUTER_SCHEMA,
+                        120,
+                    );
+                    const parsed = JSON.parse(again.content || "{}") as Record<string, unknown>;
+                    if (typeof parsed.tool === "string" && (TOOL_NAMES as readonly string[]).includes(parsed.tool)) route = parsed;
+                } catch {
+                    /* keep the first route */
+                }
+            }
+            if (rerouted || route.tool === "get_policy") question = `${prevUser?.content ?? ""} ${last.content}`;
+        }
+
         // Safety overrides for common slips of the small model.
         const q = last.content.toLowerCase();
         if (/\bmanagers?\b|\bteams?\b|\breporting\b/.test(q) && (route.tool === "find_employees" || route.tool === "none")) {
@@ -371,7 +413,7 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         let answer = "";
         if (route.tool !== "none") {
             // 2) Real data, shown as a ready-made table.
-            const { name, args } = toolArgs(route, ctx.today, last.content);
+            const { name, args } = toolArgs(route, ctx.today, question);
             toolsUsed.push(name);
             const run = await runTool(ctx, name, args);
             answer = run.display ?? NOT_SURE;

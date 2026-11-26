@@ -284,6 +284,7 @@ async function getEmployeeAttendance(ctx: ChatContext, args: ToolArgs) {
         to,
         summary,
         days,
+        only: ["late", "absent", "wfh", "leave", "half_day"].includes(str(args.only)) ? str(args.only) : undefined,
         note: days.length === 0 ? "No attendance saved for this period." : undefined,
     };
 }
@@ -611,8 +612,9 @@ async function getHolidays(ctx: ChatContext, args: ToolArgs) {
 
 async function getPolicy(_ctx: ChatContext, args: ToolArgs) {
     const topic = str(args.topic);
-    if (!topic) return { topic: "all", found: true, markdown: await policyText(), allTitles: [] as string[] };
-    return { topic, ...(await policySections(topic)) };
+    const brief = args.brief === true;
+    if (!topic) return { topic: "all", brief, found: true, markdown: await policyText(), allTitles: [] as string[] };
+    return { topic, brief, ...(await policySections(topic)) };
 }
 
 const IMPLS: Record<string, ToolImpl> = {
@@ -722,6 +724,44 @@ function nameList(names: string[], max = 6): string {
     return more > 0 ? `${shown.join(", ")} and ${more} more` : body;
 }
 
+/**
+ * Short version of policy markdown: each section's title + summary + its first 2 rules (trimmed).
+ * Works on the markdown policySections/policyText return ("**Title** (Doc)", summary line, "- rule" lines).
+ */
+function briefPolicy(markdown: string): string {
+    const out: string[] = [];
+    let rulesShown = 0;
+    let summaryDone = false;
+    let summaryLine = "";
+    for (const raw of markdown.split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("Note:") || line.startsWith("_Note")) continue;
+        const heading = line.match(/^(?:#+\s*|\*\*)(.+?)(?:\*\*)?(?:\s*\((?:Attendance|Company) policy\))?$/);
+        if ((line.startsWith("**") && line.includes("**", 2)) || line.startsWith("#")) {
+            const title = (heading?.[1] ?? line).replace(/\*\*/g, "").replace(/\s*\((Attendance|Company) policy\)\s*$/, "").trim();
+            if (/^(Attendance|Company) policy$/i.test(title)) continue;
+            out.push(`- **${title}**`);
+            rulesShown = 0;
+            summaryDone = false;
+            summaryLine = "";
+            continue;
+        }
+        const clip = (t: string) => (t.length > 140 ? `${t.slice(0, 137).trimEnd()}...` : t);
+        if (line.startsWith("- ")) {
+            const rule = line.slice(2);
+            const head = (t: string) => t.toLowerCase().split(/\s+/).slice(0, 4).join(" ");
+            if (summaryLine && head(rule) === head(summaryLine)) continue; // same as the summary
+            if (rulesShown < 2) out.push(`  - ${clip(rule)}`);
+            rulesShown++;
+        } else if (!summaryDone && out.length) {
+            out[out.length - 1] += `: ${clip(line)}`;
+            summaryLine = line;
+            summaryDone = true;
+        }
+    }
+    return out.join("\n");
+}
+
 /** Friendly answer (a sentence + the real table) straight from the data, or null when the AI should handle it. */
 function displayFor(name: string, r: Obj): string | null {
     if (r.error) return errorDisplay(r);
@@ -780,6 +820,22 @@ function displayFor(name: string, r: Obj): string | null {
             const period = `${niceDate(String(r.from))} to ${niceDate(String(r.to))}`;
             if (!days.length) return `I don't have any attendance saved for **${e.name}** (${e.code}) from ${period}.`;
             const fn = first(e.name);
+            const only = r.only ? String(r.only) : "";
+            if (only) {
+                const pick = days.filter((d) => (only === "late" ? d.late : d.status === only));
+                const label: Record<string, [string, string]> = {
+                    late: ["late", "was never late"],
+                    absent: ["absent", "had no absences"],
+                    wfh: ["on WFH", "had no WFH days"],
+                    leave: ["on leave", "took no leave"],
+                    half_day: ["on a half day (under 5 hours)", "had no half days"],
+                };
+                const [word, none] = label[only]!;
+                if (!pick.length) return `**${e.name}** (${e.code}) ${none} from ${period}.`;
+                const dates = nameList(pick.map((d) => `${niceDate(String(d.date))}${only === "late" && d.lateMinutes ? ` (${d.lateMinutes} min)` : ""}`), 12);
+                return `**${e.name}** (${e.code}) was ${word} ${only === "late" ? `**${plural(pick.length, "time")}**` : `on **${plural(pick.length, "day")}**`} from ${period}: ${dates}.\n\n` +
+                    table(["Date", "Status", "In", "Out", "Worked", "Late"], pick.map((d) => [niceDate(String(d.date)), KIND[String(d.status)] ?? d.mark, d.punchIn, d.punchOut, d.worked, d.late ? `${d.lateMinutes ?? ""} min` : ""]));
+            }
             const parts = [`present on **${plural(Number(sm.present), "day")}**`];
             if (Number(sm.halfDays)) parts.push(`${plural(Number(sm.halfDays), "half day")}`);
             parts.push(Number(sm.absent) ? `absent **${plural(Number(sm.absent), "day")}**` : "no absences");
@@ -916,6 +972,10 @@ function displayFor(name: string, r: Obj): string | null {
             return `${intro}\n\n` + table(["Date", "Holiday", "Type"], list.map((h) => [niceDate(String(h.date)), h.name, h.type]));
         }
         case "get_policy": {
+            if (r.brief && r.found) {
+                const intro = r.topic === "all" ? "Here are our policies in short:" : `Here's the **${r.topic}** policy in short:`;
+                return `${intro}\n\n${briefPolicy(String(r.markdown))}\n\nWant every rule? Just say **"full policy"**.`;
+            }
             if (r.topic === "all") return `Here are the company and attendance policies:\n\n${String(r.markdown).replace(/^#+ (.*)$/gm, "**$1**")}`;
             if (r.found && r.titleMatch) return `Here's what the policy says:\n\n${r.markdown}`;
             if (r.found) {
