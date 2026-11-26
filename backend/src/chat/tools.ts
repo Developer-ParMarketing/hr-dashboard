@@ -11,6 +11,7 @@ import { calendarTodayIso, effectiveEmploymentStatus } from "../employees/employ
 import type { AuthUser } from "../auth/users.js";
 import type { OllamaToolSpec } from "./ollama.js";
 import { policySections, policyText } from "./policies.js";
+import { findHelp, helpTopicTitles } from "./help.js";
 
 export type ChatContext = {
     user: AuthUser;
@@ -355,8 +356,63 @@ async function getAttendanceOnDate(ctx: ChatContext, args: ToolArgs) {
                 : undefined,
         count: filtered.length,
         totalEmployees: list.length,
+        counts: {
+            punchedIn: list.filter((x) => x.punchIn).length,
+            late: list.filter((x) => x.late).length,
+            absent: list.filter((x) => x.status === "absent").length,
+            wfh: list.filter((x) => x.status === "wfh").length,
+            leave: list.filter((x) => x.status === "leave").length,
+            halfDay: list.filter((x) => x.status === "half_day").length,
+            notPunchedIn: list.filter(
+                (x) => !x.punchIn && x.status !== "leave" && x.status !== "weekly_off" && x.status !== "wfh",
+            ).length,
+        },
         employees: filtered.slice(0, MAX_ROWS),
     };
+}
+
+/** Teams with their manager and members (managers see only their own team). */
+async function listTeams(ctx: ChatContext, args: ToolArgs) {
+    const q = str(args.team) || str(args.query);
+    const params: unknown[] = [];
+    const cond = scopeCond(ctx, params);
+    const emps = await query<EmpRow & { team_id: number | null }>(
+        `${EMP_SELECT.replace("SELECT e.id,", "SELECT e.team_id, e.id,")}
+         WHERE ${cond}
+           AND lower(trim(coalesce(e.status, 'active'))) = 'active'
+           AND (e.date_of_leaving IS NULL OR e.date_of_leaving >= $${params.push(ctx.today)}::date)
+         ORDER BY e.employee_code`,
+        params,
+    );
+    const teams = await query<{ id: number; name: string; manager_name: string | null; manager_email: string | null }>(
+        `SELECT t.id, t.name, mu.name AS manager_name, mu.email AS manager_email
+         FROM teams t LEFT JOIN users mu ON mu.id = t.manager_user_id
+         ORDER BY t.sort_order, t.name`,
+    );
+    const visibleTeamIds = new Set(emps.map((e) => e.team_id).filter((x): x is number => x != null));
+    const list = teams
+        .filter((t) => ctx.mode === "full" || visibleTeamIds.has(t.id))
+        .filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase()) || (t.manager_name ?? "").toLowerCase().includes(q.toLowerCase()))
+        .map((t) => {
+            const members = emps.filter((e) => e.team_id === t.id);
+            return {
+                team: t.name,
+                manager: t.manager_name ?? null,
+                memberCount: members.length,
+                members: members.map((m) => `${m.name} (${m.employee_code})`),
+            };
+        });
+    const unassigned = ctx.mode === "full" && !q ? emps.filter((e) => e.team_id == null).map((m) => `${m.name} (${m.employee_code})`) : [];
+    return { count: list.length, teams: list, unassigned };
+}
+
+async function getTodayOverview(ctx: ChatContext, args: ToolArgs) {
+    return getAttendanceOnDate(ctx, { date: isIsoDate(args.date) ? args.date : ctx.today, filter: "all" });
+}
+
+async function getHelp(_ctx: ChatContext, args: ToolArgs) {
+    const question = str(args.question) || str(args.topic);
+    return { question, topics: findHelp(question), allTopics: helpTopicTitles() };
 }
 
 async function getMonthlySummary(ctx: ChatContext, args: ToolArgs) {
@@ -555,8 +611,8 @@ async function getHolidays(ctx: ChatContext, args: ToolArgs) {
 
 async function getPolicy(_ctx: ChatContext, args: ToolArgs) {
     const topic = str(args.topic);
-    if (!topic) return { topic: "all", found: true, markdown: policyText(), allTitles: [] as string[] };
-    return { topic, ...policySections(topic) };
+    if (!topic) return { topic: "all", found: true, markdown: await policyText(), allTitles: [] as string[] };
+    return { topic, ...(await policySections(topic)) };
 }
 
 const IMPLS: Record<string, ToolImpl> = {
@@ -568,6 +624,9 @@ const IMPLS: Record<string, ToolImpl> = {
     get_pending_approvals: (ctx) => getPendingApprovals(ctx),
     get_holidays: getHolidays,
     get_policy: getPolicy,
+    list_teams: listTeams,
+    get_today_overview: getTodayOverview,
+    get_help: getHelp,
 };
 
 /* ---- short tool descriptions: every word here is re-read on each question (slow on CPU) ---- */
@@ -608,6 +667,9 @@ export const TOOL_SPECS: OllamaToolSpec[] = [
     tool("get_pending_approvals", "Leave and in/out requests waiting for approval.", {}),
     tool("get_holidays", "Company holiday list.", { year: S("string") }),
     tool("get_policy", "Company / attendance policy text.", { topic: S("string", "e.g. late, leave, wfh") }),
+    tool("list_teams", "Teams, their managers and members.", { team: S("string") }),
+    tool("get_today_overview", "Today's attendance counts.", {}),
+    tool("get_help", "How to use the HR portal.", { question: S("string") }),
 ];
 
 /* ---------------- ready-made answers (no second AI round = much faster) ---------------- */
@@ -649,109 +711,225 @@ function errorDisplay(r: Obj): string {
 }
 
 /** Markdown answer straight from the data, or null when the AI should summarise. */
+const first = (name: unknown) => String(name ?? "").split(" ")[0] || String(name ?? "");
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "A, B and C" (+N more) */
+function nameList(names: string[], max = 6): string {
+    if (names.length === 0) return "";
+    const shown = names.slice(0, max);
+    const more = names.length - shown.length;
+    const body = shown.length === 1 ? shown[0]! : `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+    return more > 0 ? `${shown.join(", ")} and ${more} more` : body;
+}
+
+/** Friendly answer (a sentence + the real table) straight from the data, or null when the AI should handle it. */
 function displayFor(name: string, r: Obj): string | null {
     if (r.error) return errorDisplay(r);
     switch (name) {
         case "find_employees": {
             const list = r.employees as Obj[];
-            if (!list.length) return "No matching employee found.";
-            return `**${list.length} employee${list.length === 1 ? "" : "s"}**\n\n` +
+            if (!list.length) return "I couldn't find anyone with that name or code. Try the employee code (e.g. PMPL03) or ask \"list of managers\".";
+            if (list.length === 1) {
+                const e = list[0]!;
+                const bits = [
+                    e.team ? `in the **${e.team}** team` : null,
+                    e.manager ? `reporting to **${e.manager}**` : null,
+                    e.shiftStartsAt ? `shift starts at ${e.shiftStartsAt}` : null,
+                    e.dateOfJoining ? `joined on ${niceDate(String(e.dateOfJoining))} ${String(e.dateOfJoining).slice(0, 4)}` : null,
+                ].filter(Boolean);
+                return `**${e.name}** (${e.code}) is ${e.status === "active" ? "an active employee" : "no longer with the company"}${bits.length ? `, ${bits.join(", ")}` : ""}.` +
+                    (e.workEmail ? `\n\nWork email: ${e.workEmail}` : "");
+            }
+            return `I found **${list.length} people**: ${nameList(list.map((e) => `${e.name} (${e.code})`))}.\n\n` +
                 table(["Code", "Name", "Team", "Manager", "Shift start"], list.map((e) => [e.code, e.name, e.team, e.manager, e.shiftStartsAt]));
+        }
+        case "list_teams": {
+            const teams = r.teams as Obj[];
+            const unassigned = (r.unassigned as string[]) ?? [];
+            if (!teams.length) return "No teams are set up yet. HR can create them in **Admin -> Teams**.";
+            const managers = teams.filter((t) => t.manager).map((t) => `**${t.manager}** (${t.team})`);
+            const intro =
+                teams.length === 1
+                    ? `The **${teams[0]!.team}** team ${teams[0]!.manager ? `is managed by **${teams[0]!.manager}**` : "has no manager assigned"} and has ${plural(Number(teams[0]!.memberCount), "member")}.`
+                    : `There are **${teams.length} teams**. Managers: ${managers.length ? nameList(managers, 10) : "none assigned yet"}.`;
+            return `${intro}\n\n` +
+                table(["Team", "Manager", "Members", "People"], teams.map((t) => [t.team, t.manager ?? "-", t.memberCount, (t.members as string[]).join(", ")])) +
+                (unassigned.length ? `\n\nNot in any team yet: ${nameList(unassigned, 10)}.` : "");
+        }
+        case "get_today_overview": {
+            const c = r.counts as Obj;
+            const when = r.isToday ? "today" : `on ${niceDate(String(r.date))}`;
+            const list = r.employees as Obj[];
+            const lateNames = list
+                .filter((x) => x.late)
+                .sort((a, b) => Number(b.lateMinutes ?? 0) - Number(a.lateMinutes ?? 0))
+                .map((x) => `${first(x.name)} (${x.lateMinutes ?? "?"} min)`);
+            const lines = [
+                `Here's attendance ${when} (${niceDate(String(r.date))}):`,
+                `- **${c.punchedIn} of ${r.totalEmployees}** have punched in`,
+                `- Late: **${c.late}**${lateNames.length ? ` - ${nameList(lateNames)}` : ""}`,
+                `- Not punched in yet: **${c.notPunchedIn}**`,
+                `- WFH: **${c.wfh}** · Leave: **${c.leave}**${Number(c.absent) ? ` · Absent: **${c.absent}**` : ""}`,
+            ];
+            return lines.join("\n") + (r.note ? `\n\nNote: ${r.note}` : "") + `\n\nAsk "today's punch-in" for the full list.`;
         }
         case "get_employee_attendance": {
             const e = r.employee as Obj;
             const sm = r.summary as Obj;
             const days = r.days as Obj[];
-            const head = `**${e.name} (${e.code})** - ${niceDate(String(r.from))} to ${niceDate(String(r.to))}`;
-            if (!days.length) return `${head}\n\nNo attendance saved for this period.`;
-            const line = `Present **${sm.present}**${Number(sm.halfDays) ? ` (half days ${sm.halfDays})` : ""} · Absent **${sm.absent}** · Late **${sm.late}** · WFH **${sm.wfh}** · Leave **${sm.leave}** · Worked **${sm.totalWorked ?? "0:00"}**`;
-            return `${head}\n\n${line}\n\n` + table(
+            const period = `${niceDate(String(r.from))} to ${niceDate(String(r.to))}`;
+            if (!days.length) return `I don't have any attendance saved for **${e.name}** (${e.code}) from ${period}.`;
+            const fn = first(e.name);
+            const parts = [`present on **${plural(Number(sm.present), "day")}**`];
+            if (Number(sm.halfDays)) parts.push(`${plural(Number(sm.halfDays), "half day")}`);
+            parts.push(Number(sm.absent) ? `absent **${plural(Number(sm.absent), "day")}**` : "no absences");
+            parts.push(Number(sm.late) ? `late **${plural(Number(sm.late), "time")}**` : "never late");
+            if (Number(sm.wfh)) parts.push(`${plural(Number(sm.wfh), "WFH day")}`);
+            if (Number(sm.leave)) parts.push(`${plural(Number(sm.leave), "leave day")}`);
+            const intro = `From ${period}, **${e.name}** (${e.code}) was ${parts.join(", ")}, with **${sm.totalWorked ?? "0:00"}** hours worked in total.`;
+            return `${intro}\n\n` + table(
                 ["Date", "Status", "In", "Out", "Worked", "Late"],
                 days.map((d) => [niceDate(String(d.date)), KIND[String(d.status)] ?? d.mark, d.punchIn, d.punchOut, d.worked, d.late ? `${d.lateMinutes ?? ""} min` : ""]),
-            );
+            ) + (Number(sm.late) || Number(sm.absent) ? "" : `\n\nNice - ${fn} has a clean record for this period.`);
         }
         case "get_attendance_on_date": {
             const list = r.employees as Obj[];
-            const what = FILTER_LABEL[String(r.filter)] ?? "";
-            const when = `${r.isToday ? "today, " : ""}${niceDate(String(r.date))}`;
+            const c = (r.counts ?? {}) as Obj;
+            const when = r.isToday ? `today (${niceDate(String(r.date))})` : `on ${niceDate(String(r.date))}`;
+            const sofar = r.isToday ? " so far" : "";
             const note = r.note ? `\n\nNote: ${r.note}` : "";
-            if (!list.length) return `Nobody ${what || "found"} on ${when}.${note}`;
-            // earliest punch-in first; people without a punch at the end
+            const filter = String(r.filter);
             const rows = [...list].sort((a, b) => String(a.punchIn ?? "99:99").localeCompare(String(b.punchIn ?? "99:99")));
-            const punched = list.filter((x) => x.punchIn).length;
-            const head =
-                r.filter === "all"
-                    ? `**Punch-in ${when}** - ${punched} of ${r.totalEmployees} punched in`
-                    : `**${list.length} of ${r.totalEmployees}** ${what} on ${when}`;
-            return `${head}\n\n` +
-                table(["Code", "Name", "Status", "In", "Out", "Late"], rows.map((x) => [x.code, x.name, KIND[String(x.status)] ?? x.status, x.punchIn, x.punchOut, x.late ? `${x.lateMinutes ?? ""} min` : ""])) +
-                note;
+            const tableMd = () =>
+                table(["Code", "Name", "Status", "In", "Out", "Late"], rows.map((x) => [x.code, x.name, KIND[String(x.status)] ?? x.status, x.punchIn, x.punchOut, x.late ? `${x.lateMinutes ?? ""} min` : ""]));
+            const names = (fmt: (x: Obj) => string) => nameList(rows.map(fmt));
+            switch (filter) {
+                case "late":
+                    if (!list.length) {
+                        if (!Number(c.punchedIn)) return `Nobody has punched in ${when} yet, so there are no late marks yet.${note}`;
+                        return `Good news - nobody has been late ${when}${sofar}. ${c.punchedIn} of ${r.totalEmployees} people have punched in.${note}`;
+                    }
+                    return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "was" : "were"} late ${when}${sofar}: ${names((x) => `${x.name} (${x.lateMinutes ?? "?"} min)`)}.\n\n${tableMd()}${note}`;
+                case "not_punched_in":
+                    if (!list.length) return `Everyone has punched in ${when} (or is on WFH / leave).${note}`;
+                    return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "hasn't" : "haven't"} punched in ${when}${sofar}: ${names((x) => String(x.name))}.\n\n${tableMd()}${note}`;
+                case "absent":
+                    if (!list.length) return `Nobody is marked absent ${when}.${note}`;
+                    return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "is" : "are"} marked absent ${when}: ${names((x) => String(x.name))}.\n\n${tableMd()}`;
+                case "wfh":
+                    if (!list.length) return `Nobody is on WFH ${when}.`;
+                    return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "is" : "are"} working from home ${when}: ${names((x) => String(x.name))}.\n\n${tableMd()}`;
+                case "leave":
+                    if (!list.length) return `Nobody is on leave ${when}.`;
+                    return `**${plural(list.length, "person", "people")}** ${list.length === 1 ? "is" : "are"} on leave ${when}: ${names((x) => String(x.name))}.\n\n${tableMd()}`;
+                case "half_day":
+                    if (!list.length) return `No half days ${when}.`;
+                    return `**${plural(list.length, "person", "people")}** worked under 5 hours ${when}: ${names((x) => `${x.name} (${x.worked ?? "-"})`)}.\n\n${tableMd()}`;
+                case "present":
+                    if (!list.length) return `Nobody is marked present ${when} yet.${note}`;
+                    return `**${list.length} of ${r.totalEmployees}** are present ${when}.\n\n${tableMd()}${note}`;
+                default: {
+                    if (!list.length) return `No employees found ${when}.`;
+                    const punched = rows.filter((x) => x.punchIn);
+                    const earliest = punched[0];
+                    const latest = punched[punched.length - 1];
+                    const intro =
+                        punched.length === 0
+                            ? `Nobody has punched in ${when}${sofar}.`
+                            : `**${punched.length} of ${r.totalEmployees}** have punched in ${when}${sofar}. ` +
+                            `Earliest: ${earliest!.name} at ${earliest!.punchIn}` +
+                            (punched.length > 1 ? `; latest: ${latest!.name} at ${latest!.punchIn}` : "") +
+                            `.${Number(c.late) ? ` ${plural(Number(c.late), "person was", "people were")} late.` : ""}`;
+                    return `${intro}\n\n${tableMd()}${note}`;
+                }
+            }
         }
         case "get_monthly_summary": {
             const e = r.employee as Obj | undefined;
             const list = r.employees as Obj[];
+            const monthLabel = new Date(`${r.month}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
             if (!e) {
-                if (!list.length) return `No attendance saved for ${r.month}.`;
-                const label: Record<string, string> = {
-                    late: "most late marks first",
-                    absent: "most absent days first",
-                    present: "most present days first",
-                    hours_low: "lowest hours first",
-                    hours_high: "highest hours first",
-                    wfh: "most WFH days first",
-                    leave: "most leave days first",
-                };
+                if (!list.length) return `I don't have any attendance saved for ${monthLabel} yet.`;
                 const top = list[0]!;
-                const topLine =
-                    r.sortBy === "late"
-                        ? `Most late marks: **${top.name} (${top.code}) - ${top.late}**`
-                        : r.sortBy === "absent"
-                            ? `Most absent: **${top.name} (${top.code}) - ${top.absent} days**`
-                            : r.sortBy === "hours_low"
-                                ? `Lowest hours: **${top.name} (${top.code}) - ${top.totalWorked ?? "0:00"}**`
-                                : r.sortBy === "hours_high"
-                                    ? `Highest hours: **${top.name} (${top.code}) - ${top.totalWorked ?? "0:00"}**`
-                                    : `Top: **${top.name} (${top.code})**`;
-                return `**${r.month}** - ${label[String(r.sortBy)] ?? ""}\n\n${topLine}\n\n` +
+                const by = String(r.sortBy);
+                const tiedLate = list.filter((x) => Number(x.late) === Number(top.late));
+                const nextLate = list.filter((x) => Number(x.late) < Number(top.late) && Number(x.late) > 0).slice(0, 2);
+                const intro =
+                    by === "late"
+                        ? Number(top.late) === 0
+                            ? `Nobody has a late mark in ${monthLabel} - great punctuality!`
+                            : tiedLate.length > 1
+                                ? `${nameList(tiedLate.map((x) => `**${x.name}** (${x.code})`))} are tied for the most late marks in ${monthLabel}, with **${top.late}** each.`
+                                : `**${top.name}** (${top.code}) has the most late marks in ${monthLabel}: **${top.late}**.` +
+                                (nextLate.length ? ` Next: ${nextLate.map((x) => `${x.name} (${x.late})`).join(", ")}.` : "")
+                        : by === "absent"
+                            ? `**${top.name}** (${top.code}) has the most absences in ${monthLabel}: **${plural(Number(top.absent), "day")}**.`
+                            : by === "hours_low"
+                                ? `**${top.name}** (${top.code}) has the lowest hours in ${monthLabel}: **${top.totalWorked ?? "0:00"}**.`
+                                : by === "hours_high"
+                                    ? `**${top.name}** (${top.code}) has worked the most hours in ${monthLabel}: **${top.totalWorked ?? "0:00"}**.`
+                                    : by === "wfh"
+                                        ? `**${top.name}** (${top.code}) has the most WFH days in ${monthLabel}: **${top.wfh}**.`
+                                        : by === "leave"
+                                            ? `**${top.name}** (${top.code}) has the most leave days in ${monthLabel}: **${top.leave}**.`
+                                            : `Here's the ${monthLabel} summary for ${plural(list.length, "employee")}.`;
+                return `${intro}\n\n` +
                     table(
                         ["Code", "Name", "Present", "Absent", "Late", "WFH", "Leave", "Worked"],
                         list.slice(0, 30).map((x) => [x.code, x.name, x.present, x.absent, x.late, x.wfh, x.leave, x.totalWorked]),
                     );
             }
             const x = list[0];
-            if (!x) return `**${e.name} (${e.code})** - no attendance saved for ${r.month}.`;
-            return `**${x.name} (${x.code})** - ${r.month}\n\nPresent **${x.present}**${Number(x.halfDays) ? ` (half days ${x.halfDays})` : ""} · Absent **${x.absent}** · Late marks **${x.late}** · WFH **${x.wfh}** · Leave **${x.leave}** · Worked **${x.totalWorked ?? "0:00"}**`;
+            if (!x) return `I don't have any attendance saved for **${e.name}** (${e.code}) in ${monthLabel}.`;
+            const lateLine =
+                Number(x.late) === 0
+                    ? "no late marks"
+                    : `**${plural(Number(x.late), "late mark")}**${Number(x.late) >= 4 ? " (4 or more means a salary cut as per the late mark policy)" : Number(x.late) === 3 ? " (one more and the late-mark salary cut applies)" : ""}`;
+            return `In ${monthLabel}, **${x.name}** (${x.code}) has ${lateLine}, ` +
+                `was present **${plural(Number(x.present), "day")}**${Number(x.halfDays) ? ` (${plural(Number(x.halfDays), "half day")})` : ""}, ` +
+                `absent **${plural(Number(x.absent), "day")}**, WFH ${x.wfh}, leave ${x.leave}, and worked **${x.totalWorked ?? "0:00"}** hours.`;
         }
         case "get_leave_requests": {
             const list = r.leaves as Obj[];
-            if (!list.length) return `No leave requests between ${niceDate(String(r.from))} and ${niceDate(String(r.to))}.`;
-            return `**${list.length} leave request${list.length === 1 ? "" : "s"}**\n\n` +
+            if (!list.length) return `There are no leave requests between ${niceDate(String(r.from))} and ${niceDate(String(r.to))}.`;
+            const pending = list.filter((l) => l.status === "pending").length;
+            return `I found **${plural(list.length, "leave request")}**${pending ? `, ${pending} still pending` : ""}.\n\n` +
                 table(["Code", "Name", "Type", "From", "To", "Days", "Status"], list.map((l) => [l.code, l.name, l.type, l.from, l.to, l.days, l.status]));
         }
         case "get_pending_approvals": {
             const lv = r.pendingLeaveRequests as Obj[];
             const io = r.pendingInOutRequests as Obj[];
-            if (!lv.length && !io.length) return "Nothing is waiting for approval.";
-            const parts: string[] = [];
-            if (lv.length) parts.push(`**Pending leave (${lv.length})**\n\n` + table(["Code", "Name", "Type", "From", "To"], lv.map((l) => [l.code, l.name, l.type, l.from, l.to])));
-            if (io.length) parts.push(`**Pending in/out (${io.length})**\n\n` + table(["Code", "Name", "Date", "In", "Out"], io.map((l) => [l.code, l.name, l.date, l.in, l.out])));
+            if (!lv.length && !io.length) return "All clear - nothing is waiting for approval right now.";
+            const parts: string[] = [`There ${lv.length + io.length === 1 ? "is" : "are"} **${lv.length + io.length}** request${lv.length + io.length === 1 ? "" : "s"} waiting for approval.`];
+            if (lv.length) parts.push(`**Leave (${lv.length})**\n\n` + table(["Code", "Name", "Type", "From", "To"], lv.map((l) => [l.code, l.name, l.type, l.from, l.to])));
+            if (io.length) parts.push(`**In/out (${io.length})**\n\n` + table(["Code", "Name", "Date", "In", "Out"], io.map((l) => [l.code, l.name, l.date, l.in, l.out])));
             return parts.join("\n\n");
         }
         case "get_holidays": {
             const list = r.holidays as Obj[];
-            if (!list.length) return `No holidays saved for ${r.year}.`;
+            if (!list.length) return `No holidays have been added for ${r.year} yet.`;
             const next = list.find((h) => h.upcoming);
-            return `**Holidays ${r.year}**${next ? ` - next: **${next.name}** on ${niceDate(String(next.date))}` : ""}\n\n` +
-                table(["Date", "Holiday", "Type"], list.map((h) => [niceDate(String(h.date)), h.name, h.type]));
+            const left = list.filter((h) => h.upcoming).length;
+            const intro = next
+                ? `The next holiday is **${next.name}** on **${niceDate(String(next.date))}**. ${left > 1 ? `${left} holidays are left in ${r.year}.` : "It's the last one this year."}`
+                : `All ${plural(list.length, "holiday")} for ${r.year} have passed.`;
+            return `${intro}\n\n` + table(["Date", "Holiday", "Type"], list.map((h) => [niceDate(String(h.date)), h.name, h.type]));
         }
         case "get_policy": {
-            if (r.topic === "all") return `**Company & attendance policies**\n\n${String(r.markdown).replace(/^#+ (.*)$/gm, "**$1**")}`;
-            if (r.found && r.titleMatch) return String(r.markdown);
+            if (r.topic === "all") return `Here are the company and attendance policies:\n\n${String(r.markdown).replace(/^#+ (.*)$/gm, "**$1**")}`;
+            if (r.found && r.titleMatch) return `Here's what the policy says:\n\n${r.markdown}`;
             if (r.found) {
-                return `There is no separate **${r.topic}** policy in the company policy document. Related rules:\n\n${r.markdown}\n\nFor anything more, please check with HR.`;
+                return `There is no separate **${r.topic}** policy yet. The closest rules are:\n\n${r.markdown}\n\nFor anything more, please check with HR.`;
             }
             const titles = (r.allTitles as string[]).join(", ");
-            return `I couldn't find a policy about **${r.topic}** in the company policy document.\n\nAvailable policy topics: ${titles}.\n\nPlease check with HR for anything not listed.`;
+            return `I couldn't find a policy about **${r.topic}**.\n\nPolicies we have: ${titles}.\n\nPlease check with HR for anything not listed.`;
+        }
+        case "get_help": {
+            const topics = r.topics as Array<{ title: string; markdown: string }>;
+            if (!topics.length) {
+                return `I'm not sure which part of the portal you mean. I can explain: ${(r.allTopics as string[]).join(", ")}.`;
+            }
+            return topics.map((t) => t.markdown).join("\n\n");
         }
         default:
             return null;

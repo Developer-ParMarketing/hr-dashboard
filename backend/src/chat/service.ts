@@ -88,6 +88,9 @@ const TOOL_NAMES = [
     "get_pending_approvals",
     "get_holidays",
     "get_policy",
+    "list_teams",
+    "get_today_overview",
+    "get_help",
     "none",
 ] as const;
 
@@ -129,6 +132,9 @@ const ROUTER_SYSTEM = [
     "- get_pending_approvals: requests waiting for approval.",
     "- get_holidays: holidays (year optional).",
     "- get_policy: any policy / rule question. topic = short keyword (late, leave, wfh, half day, posh, laptop, conduct...).",
+    "- list_teams: managers, list of managers, teams, who is in a team, team size. team = team or manager name (optional).",
+    "- get_today_overview: today's attendance summary / status / how many came today (counts only).",
+    "- get_help: HOW TO use this HR portal: apply leave, in/out request, reimbursement, where to see attendance/payslip/goal sheet/appraisal/holidays, offer or relieving letter, salary, add employee, reset password, what the chatbot can do.",
     "- none: greetings, thanks, 'what is my name', company name, or anything not about HR data.",
     "",
     "employee: a code (PMPL03), a name, or \"me\" when the user means themselves (I, my, me, mera, mujhe).",
@@ -145,6 +151,11 @@ const ROUTER_SYSTEM = [
     "most late marks this month -> {\"tool\":\"get_monthly_summary\",\"period\":\"this_month\",\"sort_by\":\"late\"}",
     "how many ganesh are there -> {\"tool\":\"find_employees\",\"query\":\"ganesh\"}",
     "what is the posh policy -> {\"tool\":\"get_policy\",\"topic\":\"posh\"}",
+    "list of managers -> {\"tool\":\"list_teams\"}",
+    "who is in design team -> {\"tool\":\"list_teams\",\"team\":\"design\"}",
+    "aaj ka attendance status -> {\"tool\":\"get_today_overview\"}",
+    "how do I apply for leave -> {\"tool\":\"get_help\"}",
+    "leave kaise apply kare -> {\"tool\":\"get_help\"}",
     "hi -> {\"tool\":\"none\"}",
 ].join("\n");
 
@@ -268,6 +279,12 @@ function toolArgs(route: Record<string, unknown>, today: string, question = ""):
             return { name, args: { year: str(route.year) } };
         case "get_policy":
             return { name, args: { topic: str(route.topic) } };
+        case "list_teams":
+            return { name, args: { team: str(route.team) ?? str(route.query) } };
+        case "get_today_overview":
+            return { name, args: { date: period === "yesterday" ? r.yesterday : r.today } };
+        case "get_help":
+            return { name, args: { question } };
         default:
             return { name, args: {} };
     }
@@ -339,6 +356,16 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
             if (typeof parsed.tool === "string" && (TOOL_NAMES as readonly string[]).includes(parsed.tool)) route = parsed;
         } catch (e) {
             console.error("[chat] router reply was not valid JSON:", e);
+        }
+
+        // Safety overrides for common slips of the small model.
+        const q = last.content.toLowerCase();
+        if (/\bmanagers?\b|\bteams?\b|\breporting\b/.test(q) && (route.tool === "find_employees" || route.tool === "none")) {
+            const named = typeof route.query === "string" && route.query && !/manager|team/i.test(route.query);
+            if (!named) route = { tool: "list_teams", team: route.team };
+        }
+        if (/\b(how (do|can|to)|kaise|where (is|can|do)|kahan|steps?)\b/.test(q) && route.tool === "none") {
+            route = { tool: "get_help" };
         }
 
         let answer = "";
