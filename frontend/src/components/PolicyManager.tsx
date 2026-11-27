@@ -231,15 +231,15 @@ export function PolicyManager({ docId, onChanged }: Props) {
                 <div className="card border p-4 sm:p-5">
                     <p className="text-sm font-semibold text-[var(--color-ink)]">Import from a document</p>
                     <p className="mt-1 text-xs leading-relaxed text-[var(--color-warm-text)]">
-                        Upload a Word file (.docx) or paste the text. Each heading becomes a section; you can check and change
-                        them before adding. A section with the same title as an existing one replaces it. For a PDF, open it and
-                        copy the text into the box below.
+                        Upload a PDF, Word (.docx) or .txt file, or paste the text. Each heading becomes a section; you can
+                        check and change them before adding. A section with the same title as an existing one replaces it.
+                        Scanned PDFs (photos of paper) have no text - use the Word file or paste the text instead.
                     </p>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                         <input
                             ref={fileRef}
                             type="file"
-                            accept=".docx,.txt,.md"
+                            accept=".pdf,.docx,.txt,.md"
                             className="hidden"
                             onChange={(e) => {
                                 const f = e.target.files?.[0]
@@ -247,7 +247,7 @@ export function PolicyManager({ docId, onChanged }: Props) {
                             }}
                         />
                         <button type="button" className="btn-primary" disabled={busy} onClick={() => fileRef.current?.click()}>
-                            {busy ? 'Reading…' : 'Upload .docx / .txt'}
+                            {busy ? 'Reading…' : 'Upload PDF / Word / .txt'}
                         </button>
                         <span className="text-xs text-[var(--color-warm-text)]">or paste below</span>
                     </div>

@@ -1,10 +1,16 @@
 /**
- * Turn an uploaded policy document (Word .docx or plain .txt) or pasted text into draft policy sections.
+ * Turn an uploaded policy document (PDF, Word .docx or plain .txt) or pasted text into draft policy sections.
  * Nothing is saved here - HR sees the drafts, can fix them, and then adds them.
  * Headings (Word heading styles, numbered titles, ALL CAPS lines, "Title:" lines) start a new section.
  * The first paragraph under a heading becomes the summary; the rest become rules.
  */
 import PizZip from "pizzip";
+import { execFile } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
 
 export type DraftSection = { title: string; summary: string; rules: string[] };
 
@@ -97,7 +103,10 @@ function tidyTitle(t: string): string {
 }
 
 function stripBullet(t: string): string {
-    return t.replace(/^([-*•●▪]|\(?[a-z0-9]{1,2}[.)])\s+/i, "").trim();
+    return t
+        .replace(/^\(?(i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii)[.)]\s+/i, "")
+        .replace(/^([-*•●▪◦‣⁃\uf0b7\uf0a7o]|\(?[a-z0-9]{1,2}[.)])\s+/i, "")
+        .trim();
 }
 
 function toSections(paras: Para[], fallbackTitle: string, prefixDocTitle: boolean): DraftSection[] {
@@ -136,11 +145,38 @@ function toSections(paras: Para[], fallbackTitle: string, prefixDocTitle: boolea
     return sections.filter((s) => s.summary || s.rules.length).slice(0, MAX_SECTIONS);
 }
 
-export function draftSectionsFromUpload(input: {
+/** backend/scripts/pdf_text.py - same folder depth from src/policies (dev) and dist/policies (build). */
+const PDF_SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "pdf_text.py");
+const PYTHON = process.env.PYTHON ?? "python3";
+
+/** PDF text via pdfplumber (already used for the attendance PDF upload). */
+async function pdfParagraphs(buffer: Buffer): Promise<Para[]> {
+    const tmp = path.join(os.tmpdir(), `policy_${randomUUID()}.pdf`);
+    fs.writeFileSync(tmp, buffer);
+    try {
+        const out = await new Promise<string>((resolve, reject) => {
+            execFile(PYTHON, [PDF_SCRIPT, tmp], { maxBuffer: 20 * 1024 * 1024, timeout: 60_000 }, (err, stdout, stderr) => {
+                if (err) reject(new Error(stderr?.trim() || err.message));
+                else resolve(stdout);
+            });
+        });
+        const data = JSON.parse(out.trim()) as { paragraphs?: Para[]; error?: string };
+        if (data.error) throw Object.assign(new Error(data.error), { status: 400 });
+        return data.paragraphs ?? [];
+    } catch (e) {
+        if (e && typeof e === "object" && "status" in e) throw e;
+        console.error("[policies] PDF read failed:", e instanceof Error ? e.message : e);
+        throw Object.assign(new Error("Could not read this PDF. Try the Word file, or copy the text and use Paste text."), { status: 400 });
+    } finally {
+        fs.unlink(tmp, () => { });
+    }
+}
+
+export async function draftSectionsFromUpload(input: {
     buffer?: Buffer;
     filename?: string;
     text?: string;
-}): DraftSection[] {
+}): Promise<DraftSection[]> {
     const name = (input.filename ?? "").trim();
     const fallbackTitle = tidyTitle(name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")) || "New policy";
     let paras: Para[];
@@ -154,12 +190,15 @@ export function draftSectionsFromUpload(input: {
             fromWord = true;
         }
         else if (lower.endsWith(".txt") || lower.endsWith(".md")) paras = textParagraphs(input.buffer.toString("utf8"));
-        else if (lower.endsWith(".pdf") || lower.endsWith(".doc")) {
+        else if (lower.endsWith(".pdf")) {
+            paras = await pdfParagraphs(input.buffer);
+            fromWord = true; // a PDF has a real title too ("POSH POLICY") - put it in front of section titles
+        } else if (lower.endsWith(".doc")) {
             throw Object.assign(
-                new Error("Please upload a Word .docx file (in Word: File -> Save As -> .docx), or copy the text and use Paste text."),
+                new Error("Old .doc files can't be read. In Word: File -> Save As -> .docx (or PDF), then upload again."),
                 { status: 400 },
             );
-        } else throw Object.assign(new Error("Upload a .docx or .txt file."), { status: 400 });
+        } else throw Object.assign(new Error("Upload a .pdf, .docx or .txt file."), { status: 400 });
     } else {
         throw Object.assign(new Error("Upload a file or paste the policy text."), { status: 400 });
     }

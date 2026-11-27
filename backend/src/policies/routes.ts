@@ -105,12 +105,12 @@ export async function handleDeletePolicySection(req: Request, res: Response): Pr
     }
 }
 
-/** HR/admin: read an uploaded .docx/.txt (or pasted text) and return draft sections. Saves nothing. */
+/** HR/admin: read an uploaded .pdf/.docx/.txt (or pasted text) and return draft sections. Saves nothing. */
 export async function handleImportPolicyDocument(req: Request, res: Response): Promise<void> {
     try {
         const file = (req as Request & { file?: { buffer: Buffer; originalname: string } }).file;
         const body = (req.body ?? {}) as { text?: unknown };
-        const sections = draftSectionsFromUpload({
+        const sections = await draftSectionsFromUpload({
             buffer: file?.buffer,
             filename: file?.originalname,
             text: typeof body.text === "string" ? body.text : undefined,
