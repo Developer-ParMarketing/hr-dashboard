@@ -275,10 +275,15 @@ async function findEmployees(ctx: ChatContext, args: ToolArgs) {
         `${EMP_SELECT} WHERE ${conds.join(" AND ")} ORDER BY e.employee_code LIMIT ${MAX_ROWS}`,
         params,
     );
-    const list = rows
+    let list = rows
         .map((r) => empBrief(r, ctx.today))
         .filter((r) => includeInactive || r.status === "active");
-    return { count: list.length, employees: list, self, about: str(args.about) || null };
+    // "santosh" means Santosh Choudhary (first name), not Sneha Santosh Mohite (middle name).
+    if (!self && q && list.length > 1) {
+        const first = list.filter((e) => e.name.trim().toLowerCase().startsWith(q.trim().toLowerCase()));
+        if (first.length) list = first;
+    }
+    return { count: list.length, employees: list, self, about: str(args.about) || null, today: ctx.today };
 }
 
 async function getEmployeeAttendance(ctx: ChatContext, args: ToolArgs) {
@@ -809,6 +814,61 @@ const cell = (v: unknown) => (v == null || v === "" ? "-" : String(v).replace(/\
 function table(head: string[], rows: unknown[][]): string {
     return [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`, ...rows.map((r) => `| ${r.map(cell).join(" | ")} |`)].join("\n");
 }
+/** "2 years 5 months" between two ISO dates. */
+function tenure(fromIso: string, toIso: string): string {
+    const a = new Date(`${fromIso}T00:00:00Z`);
+    const b = new Date(`${toIso}T00:00:00Z`);
+    let months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+    if (b.getUTCDate() < a.getUTCDate()) months--;
+    if (months < 1) {
+        const days = Math.round((b.getTime() - a.getTime()) / 86_400_000);
+        return `${days} day${days === 1 ? "" : "s"}`;
+    }
+    const y = Math.floor(months / 12);
+    const m = months % 12;
+    return [y ? `${y} year${y === 1 ? "" : "s"}` : "", m ? `${m} month${m === 1 ? "" : "s"}` : ""].filter(Boolean).join(" ");
+}
+
+function fullDate(iso: string): string {
+    return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+const NOT_RECORDED = (what: string) => `isn't recorded in the HR portal yet. HR can add it in **Admin -> Employees**.`.replace(/^/, `${what} `);
+
+/** One-line answers for a single field of one person's profile. */
+const FIELD_ANSWERS: Record<string, (e: Obj, self: boolean, today: string) => string> = {
+    joining: (e, self, today) => {
+        const who = self ? "You" : `**${e.name}** (${e.code})`;
+        if (!e.dateOfJoining) return `${self ? "Your" : `${e.name}'s`} joining date ${NOT_RECORDED("").trim()}`;
+        const d = String(e.dateOfJoining);
+        const since = today && d <= today ? ` - that's ${tenure(d, today)} with Par Marketing` : "";
+        return `${who} joined Par Marketing on **${fullDate(d)}** (year **${d.slice(0, 4)}**)${since}.`;
+    },
+    leaving: (e, self) => {
+        const who = self ? "You" : `**${e.name}**`;
+        if (!e.dateOfLeaving) return `${who} ${self ? "are" : "is"} still with the company - no leaving date is set.`;
+        return `${who} ${e.status === "active" ? "will leave" : "left"} on **${fullDate(String(e.dateOfLeaving))}**.`;
+    },
+    email: (e, self) =>
+        e.workEmail ? `${self ? "Your" : `**${e.name}**'s`} work email is **${e.workEmail}**.` : `${self ? "Your" : `${e.name}'s`} work email ${NOT_RECORDED("").trim()}`,
+    shift: (e, self) =>
+        e.shiftStartsAt
+            ? `${self ? "Your" : `**${e.name}**'s`} shift starts at **${e.shiftStartsAt}**.`
+            : `${self ? "Your" : `${e.name}'s`} shift time ${NOT_RECORDED("").trim()}`,
+    team: (e, self) =>
+        e.team ? `${self ? "You are" : `**${e.name}** is`} in the **${e.team}** team.` : `${self ? "You aren't" : `${e.name} isn't`} in any team yet.`,
+    manager: (e, self) =>
+        e.manager
+            ? `${self ? "Your" : `**${e.name}**'s`} manager is **${e.manager}**${e.team ? ` (${e.team} team)` : ""}.${self ? " Your leave and in/out requests go to them for approval." : ""}`
+            : `${self ? "You don't" : `${e.name} doesn't`} have a manager assigned yet. HR can set it in **Admin -> Teams** or **Admin -> Managers**.`,
+    code: (e, self) => `${self ? "Your" : `**${e.name}**'s`} employee code is **${e.code}**.`,
+    status: (e, self) =>
+        `${self ? "You are" : `**${e.name}** (${e.code}) is`} ${e.status === "active" ? "an **active** employee" : "**no longer with the company**"}.`,
+    designation: (e, self) =>
+        `${self ? "Your" : `${e.name}'s`} designation / job title isn't stored in the HR portal (it's only in the offer letter). ` +
+        `${self ? "You are" : `${e.name} is`} in the **${e.team ?? "-"}** team${e.manager ? `, reporting to **${e.manager}**` : ""}.`,
+};
+
 function niceDate(iso: string): string {
     return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
 }
@@ -877,6 +937,12 @@ function displayFor(name: string, r: Obj): string | null {
             const list = r.employees as Obj[];
             if (r.error) return String(r.error);
             if (!list.length) return "I couldn't find anyone with that name or code. Try the employee code (e.g. PMPL03) or ask \"list of managers\".";
+            // A specific question about one person ("when did she join", "his email"): answer just that.
+            const field = String(r.about ?? "");
+            if (list.length === 1 && FIELD_ANSWERS[field]) return FIELD_ANSWERS[field]!(list[0]!, r.self === true, String(r.today ?? ""));
+            if (list.length > 1 && list.length <= 6 && FIELD_ANSWERS[field]) {
+                return `I found ${list.length} people with that name:\n\n` + list.map((e) => `- ${FIELD_ANSWERS[field]!(e, false, String(r.today ?? ""))}`).join("\n");
+            }
             if (list.length === 1 && r.self) {
                 const e = list[0]!;
                 const team = e.team ? `the **${e.team}** team` : "no team yet";

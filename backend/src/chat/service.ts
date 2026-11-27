@@ -413,6 +413,20 @@ async function geminiRoute(turns: ChatTurn[], roster: string, today: string): Pr
     }
 }
 
+/** Which single profile fact a question asks for, if any. */
+function profileField(q: string): string | null {
+    if (/\b(join|joined|joining|doj|since when|how long|tenure|experience|which year|kab (aya|aaya|aayi|ayi|join)|kab se|kitne saal|kitne time)\b/.test(q)) return "joining";
+    if (/\b(left|leaving|relieved|resigned|resign|last day|dol)\b/.test(q)) return "leaving";
+    if (/\b(e-?mail|mail id)\b/.test(q)) return "email";
+    if (/\b(shift|timing|timings|office time|kitne baje)\b/.test(q)) return "shift";
+    if (/\b(manager|boss|reporting|reports to|report to)\b/.test(q)) return "manager";
+    if (/\b(designation|job title|title|role|position)\b/.test(q)) return "designation";
+    if (/\b(employee code|emp code|code|employee id|emp id)\b/.test(q)) return "code";
+    if (/\b(still working|active|status|working here)\b/.test(q)) return "status";
+    if (/\b(which team|team|department)\b/.test(q)) return "team";
+    return null;
+}
+
 /** The user's last few questions (no answers - they may hold data), masked for sending to Gemini. */
 function recentQuestions(turns: ChatTurn[], roster: string): string {
     const qs = turns.filter((t) => t.role === "user").slice(-3).map((t) => maskPersonalData(t.content, roster));
@@ -563,6 +577,13 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
             } else if (/\b(about me|who am i|profile|details?|info|information|joining|joined|shift|email|code|myself)\b/.test(q)) {
                 route = { tool: "find_employees", query: "me", about: "profile" };
             }
+        }
+        // One fact about a person ("when did she join", "which year", "his email"): answer only that.
+        // A short follow-up like "which year" takes its meaning from the previous question.
+        if (route.tool === "find_employees" && !route.about) {
+            const prevQ = [...turns].reverse().filter((t) => t.role === "user")[1]?.content ?? "";
+            const field = profileField(q) ?? (q.split(/\s+/).length <= 5 ? profileField(prevQ.toLowerCase()) : null);
+            if (field) route = { ...route, about: field };
         }
         if (/\b(hr|human resources?|admins?)\b/.test(q) && /\b(who|how many|kitne|kitni|kaun|list|contact|people|persons?|team|about)\b/.test(q) && !/\bpolic(y|ies)\b/.test(q)) {
             route = { tool: "get_hr_contacts" };
