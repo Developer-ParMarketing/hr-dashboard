@@ -3,10 +3,13 @@ import type { AuthedRequest } from "../auth/middleware.js";
 import { invalidatePolicyCache } from "../chat/policies.js";
 import {
     addPolicySection,
+    deletePolicyFile,
     deletePolicySection,
+    getPolicyFile,
     listPolicyChanges,
     listPolicyDocuments,
     movePolicySection,
+    savePolicyFile,
     setPolicySectionHidden,
     updatePolicySection,
 } from "./store.js";
@@ -118,5 +121,43 @@ export async function handleImportPolicyDocument(req: Request, res: Response): P
         res.json({ sections });
     } catch (e) {
         fail(res, e, "Could not read the document");
+    }
+}
+/** Everyone: download the PDF copy HR uploaded. */
+export async function handleDownloadPolicyFile(req: Request, res: Response): Promise<void> {
+    try {
+        const file = await getPolicyFile(String(req.params.docId ?? ""));
+        if (!file) {
+            res.status(404).json({ message: "No PDF has been uploaded for this policy." });
+            return;
+        }
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${file.fileName.replace(/"/g, "")}"`);
+        res.setHeader("Cache-Control", "no-store");
+        res.send(file.content);
+    } catch (e) {
+        fail(res, e, "Could not download the policy PDF");
+    }
+}
+
+/** HR/admin: upload a new official PDF copy (replaces the previous one). */
+export async function handleUploadPolicyFile(req: Request, res: Response): Promise<void> {
+    try {
+        const file = (req as Request & { file?: { buffer: Buffer; originalname: string } }).file;
+        if (!file?.buffer) throw Object.assign(new Error("Choose a PDF file to upload."), { status: 400 });
+        const info = await savePolicyFile(String(req.params.docId ?? ""), file.originalname, file.buffer, actorOf(req));
+        res.json({ file: info });
+    } catch (e) {
+        fail(res, e, "Could not upload the PDF");
+    }
+}
+
+/** HR/admin: remove the uploaded PDF and go back to the built-in one. */
+export async function handleDeletePolicyFile(req: Request, res: Response): Promise<void> {
+    try {
+        await deletePolicyFile(String(req.params.docId ?? ""), actorOf(req));
+        res.json({ ok: true });
+    } catch (e) {
+        fail(res, e, "Could not remove the PDF");
     }
 }

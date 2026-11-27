@@ -51,6 +51,9 @@ import {
   handleManagePolicies,
   handleMovePolicySection,
   handleUpdatePolicySection,
+  handleDeletePolicyFile,
+  handleDownloadPolicyFile,
+  handleUploadPolicyFile,
 } from "./policies/routes.js";
 
 import { buildSavedMonthGrid, persistLeaveWfhChanges } from "./persist/applyLeaveWfh.js";
@@ -214,6 +217,10 @@ const uploadEmployeeDoc = multer({
 const uploadReimbursementReceipts = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+});
+const uploadPolicyPdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 const uploadRelievingSignature = multer({
   storage: multer.memoryStorage(),
@@ -536,6 +543,10 @@ app.post("/api/policies/sections/:id/hide", requireEditor, (req, res) => { void 
 app.post("/api/policies/sections/:id/move", requireEditor, (req, res) => { void handleMovePolicySection(req, res); });
 app.delete("/api/policies/sections/:id", requireEditor, (req, res) => { void handleDeletePolicySection(req, res); });
 app.post("/api/policies/import", requireEditor, uploadEmployeeDoc.single("file"), (req, res) => { void handleImportPolicyDocument(req, res); });
+// Downloadable PDF copy: everyone downloads, HR/admin replace or remove it
+app.get("/api/policies/file/:docId", requireAuth, (req, res) => { void handleDownloadPolicyFile(req, res); });
+app.post("/api/policies/file/:docId", requireEditor, uploadPolicyPdf.single("file"), (req, res) => { void handleUploadPolicyFile(req, res); });
+app.delete("/api/policies/file/:docId", requireEditor, (req, res) => { void handleDeletePolicyFile(req, res); });
 
 app.post(
   "/api/attendance/process",

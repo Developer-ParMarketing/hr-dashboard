@@ -16,6 +16,9 @@ export type PolicyDocument = {
   pdfFileName: string
   /** When set, Download serves this static PDF from public/ instead of generating one. */
   staticPdfPath?: string
+  /** PDF uploaded by HR (Policies -> Manage); wins over staticPdfPath. */
+  pdfUrl?: string
+  uploadedPdf?: { fileName: string; sizeBytes: number; uploadedAt: string; uploadedBy: string | null } | null
 }
 
 export const ATTENDANCE_POLICY: PolicyDocument = {

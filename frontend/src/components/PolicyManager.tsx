@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
     addPolicySection,
     deletePolicySection,
+    deletePolicyFile,
     fetchManagePolicies,
     importPolicyDocument,
     movePolicySection,
     setPolicySectionHidden,
     updatePolicySection,
+    uploadPolicyFile,
     type DraftPolicySection,
     type PolicyChange,
     type PolicySectionInput,
@@ -33,6 +35,8 @@ const ACTION_LABEL: Record<string, string> = {
     shown: 'showed again',
     deleted: 'deleted',
     moved: 'moved',
+    pdf: 'uploaded',
+    pdf_removed: 'removed',
 }
 
 function fmtWhen(iso: string): string {
@@ -52,6 +56,7 @@ export function PolicyManager({ docId, onChanged }: Props) {
     const [pasteText, setPasteText] = useState('')
     const [drafts, setDrafts] = useState<(DraftPolicySection & { pick: boolean })[]>([])
     const fileRef = useRef<HTMLInputElement | null>(null)
+    const pdfRef = useRef<HTMLInputElement | null>(null)
 
     const load = useCallback(async () => {
         try {
@@ -156,6 +161,24 @@ export function PolicyManager({ docId, onChanged }: Props) {
         )
     }
 
+    async function replacePdf(file: File) {
+        if (!/\.pdf$/i.test(file.name)) {
+            showToast('Please choose a PDF file.', { variant: 'error' })
+            return
+        }
+        await run(async () => {
+            await uploadPolicyFile(docId, file)
+        }, `New PDF uploaded - everyone now downloads "${file.name}".`)
+        if (pdfRef.current) pdfRef.current.value = ''
+    }
+
+    async function removePdf() {
+        if (!window.confirm('Remove the uploaded PDF? Download will go back to the built-in copy.')) return
+        await run(async () => {
+            await deletePolicyFile(docId)
+        }, 'Uploaded PDF removed.')
+    }
+
     if (loading) return <p className="text-sm text-[var(--color-warm-text)]">Loading policies…</p>
     if (error) return <p className="alert-error">{error}</p>
 
@@ -170,6 +193,57 @@ export function PolicyManager({ docId, onChanged }: Props) {
                     &ldquo;Policy updated&rdquo; notice in their bell for 14 days. Use <strong>Hide</strong> to take a section
                     down without losing it.
                 </p>
+            </div>
+
+            <div className="card border flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--color-ink)]">Downloadable PDF</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-[var(--color-warm-text)]">
+                        {doc?.uploadedPdf ? (
+                            <>
+                                Employees download <strong>{doc.uploadedPdf.fileName}</strong> (
+                                {Math.max(1, Math.round(doc.uploadedPdf.sizeBytes / 1024))} KB), uploaded{' '}
+                                {new Date(doc.uploadedPdf.uploadedAt).toLocaleDateString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                })}
+                                {doc.uploadedPdf.uploadedBy ? ` by ${doc.uploadedPdf.uploadedBy}` : ''}.
+                            </>
+                        ) : doc?.staticPdfPath ? (
+                            <>
+                                Employees download the built-in <strong>{doc.pdfFileName}</strong>. Upload a new PDF to
+                                replace it.
+                            </>
+                        ) : (
+                            <>No PDF uploaded - Download makes a PDF from the sections below. Upload the official PDF here.</>
+                        )}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--color-warm-text)]">
+                        Tip: after uploading, use <strong>Import from document</strong> with the same PDF so the
+                        sections and the chatbot match it too.
+                    </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                    <input
+                        ref={pdfRef}
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                            const f = e.target.files?.[0]
+                            if (f) void replacePdf(f)
+                        }}
+                    />
+                    <button type="button" className="btn-primary" disabled={busy} onClick={() => pdfRef.current?.click()}>
+                        {busy ? 'Uploading…' : doc?.uploadedPdf || doc?.staticPdfPath ? 'Upload new PDF' : 'Upload PDF'}
+                    </button>
+                    {doc?.uploadedPdf ? (
+                        <button type="button" className="btn-secondary" disabled={busy} onClick={() => void removePdf()}>
+                            Remove
+                        </button>
+                    ) : null}
+                </div>
             </div>
 
             {draft ? (

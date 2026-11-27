@@ -1099,7 +1099,7 @@ export function canUseDashboardDateFilters(user: AuthUser): boolean {
 
 /** "Policy updated" items for the bell: changes HR made in the last 14 days (newest 3). */
 async function policyUpdateNotifications(): Promise<DashboardNotification[]> {
-  const changes = (await listPolicyChanges(20, 14)).filter((c) => c.action === "added" || c.action === "updated");
+  const changes = (await listPolicyChanges(20, 14)).filter((c) => c.action === "added" || c.action === "updated" || c.action === "pdf");
   const seen = new Set<string>();
   const out: DashboardNotification[] = [];
   for (const c of changes) {
@@ -1112,8 +1112,16 @@ async function policyUpdateNotifications(): Promise<DashboardNotification[]> {
       tier: "normal",
       priorityScore: 30,
       rank: 0,
-      title: c.action === "added" ? `New policy: ${c.title}` : `Policy updated: ${c.title}`,
-      message: `${c.docId === "company" ? "Company" : "Attendance"} policy ${c.action === "added" ? "added" : "changed"} on ${when}. Please read it.`,
+      title:
+        c.action === "pdf"
+          ? `New ${c.docId === "company" ? "company" : "attendance"} policy PDF`
+          : c.action === "added"
+            ? `New policy: ${c.title}`
+            : `Policy updated: ${c.title}`,
+      message:
+        c.action === "pdf"
+          ? `HR uploaded a new copy on ${when}. Download it from the Policies page.`
+          : `${c.docId === "company" ? "Company" : "Attendance"} policy ${c.action === "added" ? "added" : "changed"} on ${when}. Please read it.`,
       href: "/policies",
       actionLabel: "Read policy",
       moduleId: "policies",

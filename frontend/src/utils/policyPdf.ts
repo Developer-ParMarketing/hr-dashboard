@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf'
 import type { PolicyDocument } from '../constants/policies'
+import { fetchPolicyFileBlob } from '../api/policies'
 import { formatDisplayDate, isoFromYmd } from './displayDate'
 
 const MARGIN = 48
@@ -140,6 +141,10 @@ function generatePolicyPdf(document: PolicyDocument): void {
 }
 
 export async function downloadPolicyPdf(document: PolicyDocument): Promise<void> {
+  if (document.pdfUrl) {
+    downloadBlob(await fetchPolicyFileBlob(document.pdfUrl), document.pdfFileName)
+    return
+  }
   if (document.staticPdfPath) {
     await downloadStaticPolicyPdf(document)
     return

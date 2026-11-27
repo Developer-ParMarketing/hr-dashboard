@@ -69,9 +69,12 @@ export function PolicyDocumentPanel({ document }: Props) {
           <div className="policy-download-copy">
             <p className="policy-download-title">PDF copy</p>
             <p className="policy-download-text">
-              {document.staticPdfPath
+              {document.pdfUrl || document.staticPdfPath
                 ? `Download the official ${document.title.toLowerCase()} PDF (${document.pdfFileName}).`
                 : `Download the full ${document.title.toLowerCase()} for offline reading or sharing.`}
+              {document.uploadedPdf
+                ? ` Updated ${new Date(document.uploadedPdf.uploadedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}.`
+                : ''}
             </p>
           </div>
           <button

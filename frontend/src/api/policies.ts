@@ -116,3 +116,32 @@ export async function importPolicyDocument(input: { file?: File; text?: string }
         throw message(e, 'Could not read the document')
     }
 }
+/** HR: upload a new official PDF copy for a policy (replaces the old one). */
+export async function uploadPolicyFile(docId: 'attendance' | 'company', file: File): Promise<void> {
+    try {
+        const form = new FormData()
+        form.append('file', file)
+        await client.post(`/api/policies/file/${docId}`, form)
+    } catch (e) {
+        throw message(e, 'Could not upload the PDF')
+    }
+}
+
+/** HR: remove the uploaded PDF (back to the built-in copy). */
+export async function deletePolicyFile(docId: 'attendance' | 'company'): Promise<void> {
+    try {
+        await client.delete(`/api/policies/file/${docId}`)
+    } catch (e) {
+        throw message(e, 'Could not remove the PDF')
+    }
+}
+
+/** Download the uploaded PDF (needs the login token, so it goes through the API client). */
+export async function fetchPolicyFileBlob(url: string): Promise<Blob> {
+    try {
+        const { data } = await client.get<Blob>(url, { responseType: 'blob' })
+        return data
+    } catch (e) {
+        throw message(e, 'Could not download the policy PDF. Contact HR if this keeps happening.')
+    }
+}

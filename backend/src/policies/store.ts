@@ -24,6 +24,9 @@ export type StoredPolicyDocument = Omit<PolicyDocument, "sections"> & {
     sections: StoredPolicySection[];
     /** last time HR changed something in this document (null = original text) */
     editedAt: string | null;
+    /** download URL of the PDF HR uploaded (overrides staticPdfPath) */
+    pdfUrl?: string;
+    uploadedPdf: PolicyFileInfo | null;
 };
 
 type Row = {
@@ -76,6 +79,16 @@ export function ensurePolicyTables(): Promise<void> {
                 changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
             CREATE INDEX IF NOT EXISTS idx_policy_change_log_at ON policy_change_log (changed_at DESC);
+            -- The downloadable PDF copy HR uploads (Policies -> Manage -> Downloadable PDF). One per document.
+            CREATE TABLE IF NOT EXISTS policy_files (
+                doc_id TEXT PRIMARY KEY,
+                file_name TEXT NOT NULL,
+                content BYTEA NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                uploaded_by_user_id INTEGER,
+                uploaded_by_name TEXT
+            );
         `);
         const existing = await query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM policy_sections`);
         if ((existing[0]?.n ?? 0) === 0) {
@@ -130,12 +143,17 @@ export async function listPolicyDocuments(includeHidden = false): Promise<Stored
         `SELECT doc_id, MAX(changed_at)::text AS at FROM policy_change_log GROUP BY doc_id`,
     );
     const editedAt = new Map(lastChange.map((r) => [r.doc_id, r.at]));
+    const files = new Map((await listPolicyFiles()).map((f) => [f.docId, f]));
     return DEFAULT_POLICIES.map((doc) => {
         const changed = editedAt.get(doc.id) ?? null;
+        const file = files.get(doc.id);
         return {
             ...doc,
-            // the official static PDF no longer matches once HR has edited the text
-            staticPdfPath: changed ? undefined : doc.staticPdfPath,
+            // HR's uploaded PDF wins; otherwise the built-in static PDF until HR edits the text.
+            staticPdfPath: file ? undefined : changed ? undefined : doc.staticPdfPath,
+            pdfUrl: file ? `/api/policies/file/${doc.id}` : undefined,
+            pdfFileName: file ? file.fileName : doc.pdfFileName,
+            uploadedPdf: file ?? null,
             sections: rows.filter((r) => r.doc_id === doc.id).map(toSection),
             editedAt: changed,
         };
@@ -330,4 +348,57 @@ export async function listPolicyChanges(limit = 50, sinceDays?: number): Promise
         changedBy: r.changed_by_name,
         changedAt: r.changed_at,
     }));
+}
+// --- Downloadable PDF copy ---------------------------------------------------------------
+
+export type PolicyFileInfo = { docId: string; fileName: string; sizeBytes: number; uploadedAt: string; uploadedBy: string | null };
+
+export async function listPolicyFiles(): Promise<PolicyFileInfo[]> {
+    await ensurePolicyTables();
+    const rows = await query<{ doc_id: string; file_name: string; size_bytes: number; uploaded_at: string; uploaded_by_name: string | null }>(
+        `SELECT doc_id, file_name, size_bytes, uploaded_at::text AS uploaded_at, uploaded_by_name FROM policy_files`,
+    );
+    return rows.map((r) => ({ docId: r.doc_id, fileName: r.file_name, sizeBytes: r.size_bytes, uploadedAt: r.uploaded_at, uploadedBy: r.uploaded_by_name }));
+}
+
+export async function getPolicyFile(docId: string): Promise<{ fileName: string; content: Buffer } | null> {
+    await ensurePolicyTables();
+    const rows = await query<{ file_name: string; content: Buffer }>(`SELECT file_name, content FROM policy_files WHERE doc_id = $1`, [docId]);
+    return rows[0] ? { fileName: rows[0].file_name, content: rows[0].content } : null;
+}
+
+function checkDocId(docId: string): string {
+    if (!DEFAULT_POLICIES.some((d) => d.id === docId)) throw Object.assign(new Error("Unknown policy"), { status: 400 });
+    return docId;
+}
+
+/** HR uploads a new official PDF; it replaces the previous one for that policy. */
+export async function savePolicyFile(docId: string, fileName: string, content: Buffer, actor: Actor): Promise<PolicyFileInfo> {
+    await ensurePolicyTables();
+    checkDocId(docId);
+    if (!content.length) throw Object.assign(new Error("The file is empty."), { status: 400 });
+    if (content.subarray(0, 5).toString("latin1") !== "%PDF-") {
+        throw Object.assign(new Error("Please upload a PDF file."), { status: 400 });
+    }
+    const clean = (fileName.replace(/[\\/:*?"<>|]+/g, " ").trim() || `${docId}-policy.pdf`).slice(0, 150);
+    const name = clean.toLowerCase().endsWith(".pdf") ? clean : `${clean}.pdf`;
+    const before = (await listPolicyFiles()).find((f) => f.docId === docId) ?? null;
+    await query(
+        `INSERT INTO policy_files (doc_id, file_name, content, size_bytes, uploaded_at, uploaded_by_user_id, uploaded_by_name)
+         VALUES ($1, $2, $3, $4, NOW(), $5, $6)
+         ON CONFLICT (doc_id) DO UPDATE SET file_name = EXCLUDED.file_name, content = EXCLUDED.content,
+           size_bytes = EXCLUDED.size_bytes, uploaded_at = NOW(),
+           uploaded_by_user_id = EXCLUDED.uploaded_by_user_id, uploaded_by_name = EXCLUDED.uploaded_by_name`,
+        [docId, name, content, content.length, actor.userId, actor.name],
+    );
+    await logChange(docId, null, "pdf", `New PDF copy: ${name}`, before ? { fileName: before.fileName } : null, { fileName: name }, actor);
+    return (await listPolicyFiles()).find((f) => f.docId === docId)!;
+}
+
+/** Back to the built-in PDF (or the generated one). */
+export async function deletePolicyFile(docId: string, actor: Actor): Promise<void> {
+    await ensurePolicyTables();
+    checkDocId(docId);
+    const rows = await query<{ file_name: string }>(`DELETE FROM policy_files WHERE doc_id = $1 RETURNING file_name`, [docId]);
+    if (rows[0]) await logChange(docId, null, "pdf_removed", `PDF copy removed: ${rows[0].file_name}`, { fileName: rows[0].file_name }, null, actor);
 }
