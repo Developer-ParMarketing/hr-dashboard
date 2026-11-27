@@ -299,7 +299,7 @@ function toolArgs(
             return { name, args: { month: from.slice(0, 7), employee: str(route.employee), sort_by: str(route.sort_by) } };
         }
         case "find_employees":
-            return { name, args: { query: str(route.query) ?? str(route.employee), team: str(route.team) } };
+            return { name, args: { query: str(route.query) ?? str(route.employee), team: str(route.team), about: str(route.about) } };
         case "get_leave_requests": {
             const [from, to] = period || (asked && !asked.single) ? range() : [undefined, undefined];
             const status = str(route.status);
@@ -314,7 +314,7 @@ function toolArgs(
                 args: { topic: str(route.topic), brief: FULL_RE.test(question) ? 0 : SHORTEST_RE.test(question) ? 2 : 1 },
             };
         case "list_teams":
-            return { name, args: { team: str(route.team) ?? str(route.query) } };
+            return { name, args: { team: str(route.team) ?? str(route.query), question } };
         case "get_today_overview":
             return { name, args: { date: askedDay ?? (period === "yesterday" ? r.yesterday : r.today) } };
         case "get_leave_balance":
@@ -544,6 +544,25 @@ export async function runChat(user: AuthUser, history: ChatTurn[]): Promise<Chat
         if (/\bmanagers?\b|\bteams?\b|\breporting\b/.test(q) && (route.tool === "find_employees" || route.tool === "none")) {
             const named = typeof route.query === "string" && route.query && !/manager|team/i.test(route.query);
             if (!named) route = { tool: "list_teams", team: route.team };
+        }
+        // "all managers", "how many managers", "in parmarketing": the whole company, not a team from earlier.
+        if (route.tool === "list_teams" && /\b(all|sab|saare|sare|every|how many|how manay|kitne|not only|company|parmarketing|par marketing|whole|entire|total|managers|list of|teams)\b/.test(q)) {
+            route = { tool: "list_teams" };
+        }
+        // Questions about yourself: "who is my manager", "about me", "my team", "my designation".
+        // ("show me Ganesh's profile" is about Ganesh, so a bare "me" doesn't count.)
+        const aboutSelf = /\b(my|mera|meri|mere|mujhe|who am i|apna|apni|myself|about me|for me)\b/.test(q);
+        const aboutData = /\b(attendance|late|absent|leaves?|wfh|punch|hours|salary|balance|holidays?|polic(y|ies)|approvals?|requests?|chhutti|chutti)\b/.test(q);
+        if (aboutSelf && !aboutData) {
+            if (/\b(manager|manahger|maneger|boss|reporting|report to|reports to|lead|senior)\b/.test(q)) {
+                route = { tool: "find_employees", query: "me", about: "manager" };
+            } else if (/\b(designation|job title|title|role|position|post)\b/.test(q)) {
+                route = { tool: "find_employees", query: "me", about: "designation" };
+            } else if (/\bteam\b/.test(q)) {
+                route = { tool: "list_teams", team: "my" };
+            } else if (/\b(about me|who am i|profile|details?|info|information|joining|joined|shift|email|code|myself)\b/.test(q)) {
+                route = { tool: "find_employees", query: "me", about: "profile" };
+            }
         }
         if (/\b(hr|human resources?|admins?)\b/.test(q) && /\b(who|how many|kitne|kitni|kaun|list|contact|people|persons?|team|about)\b/.test(q) && !/\bpolic(y|ies)\b/.test(q)) {
             route = { tool: "get_hr_contacts" };

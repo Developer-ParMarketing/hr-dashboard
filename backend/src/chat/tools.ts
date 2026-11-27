@@ -56,10 +56,14 @@ type EmpRow = {
 const EMP_SELECT = `
   SELECT e.id, e.employee_code, e.name, e.email, e.department, e.status,
          e.date_of_joining::text AS date_of_joining, e.date_of_leaving::text AS date_of_leaving,
-         e.shift_start, t.name AS team_name, mu.name AS manager_name
+         e.shift_start, t.name AS team_name,
+         -- reporting manager: direct assignment (Admin -> Managers) first, else the team's manager
+         COALESCE(am.name, mu.name) AS manager_name
   FROM employees e
   LEFT JOIN teams t ON t.id = e.team_id
-  LEFT JOIN users mu ON mu.id = t.manager_user_id`;
+  LEFT JOIN users mu ON mu.id = t.manager_user_id
+  LEFT JOIN manager_employee_assignments mea ON mea.employee_id = e.id
+  LEFT JOIN users am ON am.id = mea.manager_user_id`;
 
 /** SQL condition limiting employee alias `e` to the user's scope. Adds a param when needed. */
 function scopeCond(ctx: ChatContext, params: unknown[], alias = "e"): string {
@@ -170,7 +174,7 @@ function empBrief(e: EmpRow, today: string) {
         code: e.employee_code,
         name: e.name,
         team: e.team_name ?? e.department ?? null,
-        manager: e.manager_name ?? null,
+        manager: e.manager_name && e.manager_name.trim().toLowerCase() !== e.name.trim().toLowerCase() ? e.manager_name : null,
         status: effectiveEmploymentStatus(e.status, e.date_of_leaving, today),
         dateOfJoining: e.date_of_joining,
         dateOfLeaving: e.date_of_leaving,
@@ -246,7 +250,18 @@ async function findEmployees(ctx: ChatContext, args: ToolArgs) {
     const includeInactive = args.include_inactive === true || str(args.include_inactive) === "true";
     const params: unknown[] = [];
     const conds = [scopeCond(ctx, params)];
-    if (q) {
+    const self = !!q && SELF_RE.test(q);
+    if (self) {
+        if (ctx.selfEmployeeId == null) {
+            return {
+                count: 0,
+                employees: [],
+                error: `Your login (${ctx.user.email}) is not linked to an employee record, so I don't have a profile for it.`,
+            };
+        }
+        params.push(ctx.selfEmployeeId);
+        conds.push(`e.id = $${params.length}`);
+    } else if (q) {
         params.push(q);
         conds.push(
             `(upper(e.employee_code) = upper($${params.length}) OR e.name ILIKE $${params.length} || '%' OR e.name ILIKE '% ' || $${params.length} || '%')`,
@@ -263,7 +278,7 @@ async function findEmployees(ctx: ChatContext, args: ToolArgs) {
     const list = rows
         .map((r) => empBrief(r, ctx.today))
         .filter((r) => includeInactive || r.status === "active");
-    return { count: list.length, employees: list };
+    return { count: list.length, employees: list, self, about: str(args.about) || null };
 }
 
 async function getEmployeeAttendance(ctx: ChatContext, args: ToolArgs) {
@@ -400,8 +415,23 @@ async function getHrContacts(_ctx: ChatContext, _args: ToolArgs) {
 }
 
 /** Teams with their manager and members (managers see only their own team). */
+/** Words that only mean "the teams" in general - not a team name to filter on. */
+const GENERIC_TEAM_WORDS = /^(all|any|every|sab|saare|sare|manager|managers|team|teams|company|parmarketing|par marketing|par|list|how many|kitne|office|everyone)$/i;
+
 async function listTeams(ctx: ChatContext, args: ToolArgs) {
-    const q = str(args.team) || str(args.query);
+    let q = str(args.team) || str(args.query);
+    if (GENERIC_TEAM_WORDS.test(q.trim())) q = "";
+    // "my team": the user's own team
+    if (q && /^(my|mine|me|mera|meri|mere|apna|apni|my team|own)$/i.test(q.trim())) {
+        const own = ctx.selfEmployeeId == null
+            ? []
+            : await query<{ name: string }>(
+                `SELECT t.name FROM employees e JOIN teams t ON t.id = e.team_id WHERE e.id = $1`,
+                [ctx.selfEmployeeId],
+            );
+        q = own[0]?.name ?? "";
+        if (!q) return { count: 0, teams: [], unassigned: [], query: "your team", notFound: true };
+    }
     const params: unknown[] = [];
     const cond = scopeCond(ctx, params);
     const emps = await query<EmpRow & { team_id: number | null }>(
@@ -412,26 +442,54 @@ async function listTeams(ctx: ChatContext, args: ToolArgs) {
          ORDER BY e.employee_code`,
         params,
     );
-    const teams = await query<{ id: number; name: string; manager_name: string | null; manager_email: string | null }>(
-        `SELECT t.id, t.name, mu.name AS manager_name, mu.email AS manager_email
+    // Team names, managers and head-counts are general company info - everyone may see them.
+    // Member names are only listed for people inside the user's own scope.
+    const teams = await query<{ id: number; name: string; manager_name: string | null; member_count: number }>(
+        `SELECT t.id, t.name, mu.name AS manager_name,
+                (SELECT COUNT(*)::int FROM employees e
+                  WHERE e.team_id = t.id AND lower(trim(coalesce(e.status, 'active'))) = 'active'
+                    AND (e.date_of_leaving IS NULL OR e.date_of_leaving >= $1::date)) AS member_count
          FROM teams t LEFT JOIN users mu ON mu.id = t.manager_user_id
          ORDER BY t.sort_order, t.name`,
+        [ctx.today],
     );
-    const visibleTeamIds = new Set(emps.map((e) => e.team_id).filter((x): x is number => x != null));
+    // A team named in the question itself ("manager of Design team") beats the AI's guess.
+    const asked = str(args.question).toLowerCase();
+    const named = asked ? teams.find((t) => new RegExp(`\\b${t.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(asked)) : undefined;
+    if (named) q = named.name;
+    // People in your own team are always listed (names only), whatever your role.
+    const ownTeam = ctx.selfEmployeeId == null
+        ? []
+        : await query<{ team_id: number; name: string; employee_code: string }>(
+            `SELECT e.team_id, e.name, e.employee_code FROM employees e
+                WHERE e.team_id = (SELECT team_id FROM employees WHERE id = $1)
+                  AND lower(trim(coalesce(e.status, 'active'))) = 'active'
+                  AND (e.date_of_leaving IS NULL OR e.date_of_leaving >= $2::date)
+                ORDER BY e.employee_code`,
+            [ctx.selfEmployeeId, ctx.today],
+        );
+    const ql = q.toLowerCase();
     const list = teams
-        .filter((t) => ctx.mode === "full" || visibleTeamIds.has(t.id))
-        .filter((t) => !q || t.name.toLowerCase().includes(q.toLowerCase()) || (t.manager_name ?? "").toLowerCase().includes(q.toLowerCase()))
+        .filter((t) => !q || t.name.toLowerCase().includes(ql) || (t.manager_name ?? "").toLowerCase().includes(ql))
         .map((t) => {
-            const members = emps.filter((e) => e.team_id === t.id);
+            const own = ownTeam.length && ownTeam[0]!.team_id === t.id;
+            const members = own ? ownTeam : emps.filter((e) => e.team_id === t.id);
             return {
                 team: t.name,
                 manager: t.manager_name ?? null,
-                memberCount: members.length,
+                memberCount: ctx.mode === "full" || own ? members.length : t.member_count,
                 members: members.map((m) => `${m.name} (${m.employee_code})`),
             };
         });
     const unassigned = ctx.mode === "full" && !q ? emps.filter((e) => e.team_id == null).map((m) => `${m.name} (${m.employee_code})`) : [];
-    return { count: list.length, teams: list, unassigned };
+    return {
+        count: list.length,
+        teams: list,
+        unassigned,
+        query: q || null,
+        notFound: Boolean(q) && list.length === 0,
+        allTeams: teams.map((t) => t.name),
+    };
 }
 
 async function getTodayOverview(ctx: ChatContext, args: ToolArgs) {
@@ -716,7 +774,7 @@ export const TOOL_SPECS: OllamaToolSpec[] = [
     tool("get_pending_approvals", "Leave and in/out requests waiting for approval.", {}),
     tool("get_holidays", "Company holiday list.", { year: S("string") }),
     tool("get_policy", "Company / attendance policy text.", { topic: S("string", "e.g. late, leave, wfh") }),
-    tool("list_teams", "Teams, their managers and members.", { team: S("string") }),
+    tool("list_teams", "Teams, their managers and members.", { team: S("string"), question: S("string") }),
     tool("get_hr_contacts", "Who is HR / admin in the portal and how many.", {}),
     tool("get_leave_balance", "PL/SL/CL leave balance (used, pending, left).", { employee: S("string"), year: S("string") }),
     tool("get_today_overview", "Today's attendance counts.", {}),
@@ -817,7 +875,30 @@ function displayFor(name: string, r: Obj): string | null {
     switch (name) {
         case "find_employees": {
             const list = r.employees as Obj[];
+            if (r.error) return String(r.error);
             if (!list.length) return "I couldn't find anyone with that name or code. Try the employee code (e.g. PMPL03) or ask \"list of managers\".";
+            if (list.length === 1 && r.self) {
+                const e = list[0]!;
+                const team = e.team ? `the **${e.team}** team` : "no team yet";
+                if (r.about === "manager") {
+                    return e.manager
+                        ? `Your manager is **${e.manager}** (${team}). Your leave and in/out requests go to them for approval.`
+                        : `You don't have a manager assigned yet (${team}). HR can set it in **Admin -> Teams** or **Admin -> Managers**.`;
+                }
+                const lines = [
+                    `- **Code:** ${e.code}`,
+                    `- **Team:** ${e.team ?? "-"}`,
+                    `- **Manager:** ${e.manager ?? "not assigned yet"}`,
+                    e.shiftStartsAt ? `- **Shift starts:** ${e.shiftStartsAt}` : null,
+                    e.dateOfJoining ? `- **Joined:** ${niceDate(String(e.dateOfJoining))} ${String(e.dateOfJoining).slice(0, 4)}` : null,
+                    e.workEmail ? `- **Work email:** ${e.workEmail}` : null,
+                ].filter(Boolean);
+                const designation =
+                    r.about === "designation"
+                        ? "Your designation / job title isn't stored in the HR portal yet - HR has it in your offer letter. Here's what I have:\n\n"
+                        : "";
+                return `${designation}${designation ? "" : `Here's your profile, **${e.name}**:\n\n`}${lines.join("\n")}\n\nAsk "my attendance this month" or "my leave balance" for more.`;
+            }
             if (list.length === 1) {
                 const e = list[0]!;
                 const bits = [
@@ -864,14 +945,21 @@ function displayFor(name: string, r: Obj): string | null {
         case "list_teams": {
             const teams = r.teams as Obj[];
             const unassigned = (r.unassigned as string[]) ?? [];
+            if (r.notFound) {
+                const all = (r.allTeams as string[]) ?? [];
+                return `I couldn't find a team called "${r.query}".${all.length ? ` Our teams are: ${nameList(all, 12)}.` : ""}`;
+            }
             if (!teams.length) return "No teams are set up yet. HR can create them in **Admin -> Teams**.";
             const managers = teams.filter((t) => t.manager).map((t) => `**${t.manager}** (${t.team})`);
             const intro =
                 teams.length === 1
                     ? `The **${teams[0]!.team}** team ${teams[0]!.manager ? `is managed by **${teams[0]!.manager}**` : "has no manager assigned"} and has ${plural(Number(teams[0]!.memberCount), "member")}.`
                     : `There are **${teams.length} teams**. Managers: ${managers.length ? nameList(managers, 10) : "none assigned yet"}.`;
+            const showPeople = teams.some((t) => (t.members as string[]).length > 0 && (t.members as string[]).length === Number(t.memberCount));
             return `${intro}\n\n` +
-                table(["Team", "Manager", "Members", "People"], teams.map((t) => [t.team, t.manager ?? "-", t.memberCount, (t.members as string[]).join(", ")])) +
+                (showPeople
+                    ? table(["Team", "Manager", "Members", "People"], teams.map((t) => [t.team, t.manager ?? "-", t.memberCount, (t.members as string[]).join(", ") || "-"]))
+                    : table(["Team", "Manager", "Members"], teams.map((t) => [t.team, t.manager ?? "-", t.memberCount]))) +
                 (unassigned.length ? `\n\nNot in any team yet: ${nameList(unassigned, 10)}.` : "");
         }
         case "get_today_overview": {
